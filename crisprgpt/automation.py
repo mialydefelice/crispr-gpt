@@ -1,6 +1,6 @@
 from .logic import BaseState, Result_ProcessUserInput, BaseUserInputState
 from llm import OpenAIChat, IdentifiableGeneError
-from . import base_editing, knockout, prime_editing, act_rep, off_target
+from . import base_editing, knockout, prime_editing, act_rep, off_target, plasmid_insert_design
 from .logic import StateFinal, gradio_state_machine, EmptyState, EmptyStateFinal
 
 from dataclasses import dataclass
@@ -18,7 +18,7 @@ class ExecutorState:
 
 
 PROMPT_PROCESS_AUTOMATE = """
-Please act as an expert in CRISPR technology. Given the user input, think step by step and generate a list of tasks for execution. First refer to the task description table below, and try to figure out if the user needs to directly jump into a task, or the user needs to complete several tasks. Make sure to respect the task notes.
+Please act as an expert in CRISPR technology and molecular biology. Given the user input, think step by step and generate a list of tasks for execution. First refer to the task description table below, and try to figure out if the user needs to directly jump into a task, or the user needs to complete several tasks. Make sure to respect the task notes.
 
 Please do not include unnecessary steps and there are no dependencies within the steps. Please make sure the generated list of tasks are in the order indicated in the task description table. Please format your response and make sure it is parsable by JSON.
 
@@ -50,9 +50,17 @@ For Off-Target Prediction
 task name: task descriptions: dependency
 off_target.OffTarget: Off-target search/prediction using CRISPRitz: none
 
+For Expression Plasmid Design
+
+task name: task descriptions: notes
+plasmid_insert_design.StateEntry: Entry point for expression plasmid design : none
+plasmid_insert_design.StateStep1Backbone: Plasmid backbone selection (pcDNA3.1(+) or pAG) : none
+plasmid_insert_design.GeneInsertSelection: Gene insert design and sequence optimization : none
+
 ## Demonstrations:
 If the user only needs to design guideRNA for knockout, then return ['knockout.StateStep3']. Reason: this directly matches knockout.StateStep3.
 
+If the user wants to design an expression plasmid, then return ['plasmid_insert_design.StateEntry', 'plasmid_insert_design.StateStep1Backbone', 'plasmid_insert_design.GeneInsertSelection']. Reason: this covers backbone selection and gene insert design for expression plasmids.
 
 User Input:
 
