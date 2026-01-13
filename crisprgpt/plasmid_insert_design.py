@@ -5,6 +5,8 @@ from .expression_plasmid_constant import *
 from .logic import BaseState, Result_ProcessUserInput, BaseUserInputState
 from .gene_identifier import GeneIdentifier
 from .apis.parse_plasmid_library import PlasmidLibraryReader
+from .plasmid_mcs_handler import MCSHandler
+from .biomni_integration import get_biomni_agent
 from llm import OpenAIChat
 import time
 from util import get_logger
@@ -220,8 +222,6 @@ class OutputFormatSelection(BaseUserInputState):
         plasmid_reader = PlasmidLibraryReader()
         plasmid_reader.load_library()
         
-
-        breakpoint()
         # Try to find the plasmid in the library by name
         backbone_seq = None
         if backbone_name:
@@ -242,32 +242,63 @@ class OutputFormatSelection(BaseUserInputState):
                 StateStep1Backbone,
             )
         
-        # Construct the final plasmid with gene insert
-        final_seq = backbone_seq + gene_seq
+        # Try to use Biomni for intelligent MCS detection if available
+        biomni_agent = get_biomni_agent()
+        insertion_result = None
+        
+        if biomni_agent:
+            logger.info("Using Biomni for plasmid analysis...")
+            try:
+                mcs_analysis = biomni_agent.find_mcs_in_plasmid(backbone_seq, backbone_name)
+                construct_design = biomni_agent.design_construct(backbone_seq, gene_seq, gene_name)
+                
+                # If Biomni provides MCS analysis, use it
+                if mcs_analysis and "error" not in mcs_analysis:
+                    logger.info(f"Biomni analysis: {mcs_analysis}")
+                    # Extract insertion info if available
+                    insertion_result = MCSHandler.insert_gene_at_mcs(backbone_seq, gene_seq)
+                else:
+                    # Fall back to standard MCS handler
+                    insertion_result = MCSHandler.insert_gene_at_mcs(backbone_seq, gene_seq)
+            except Exception as e:
+                logger.warning(f"Biomni analysis failed, falling back to standard handler: {e}")
+                insertion_result = MCSHandler.insert_gene_at_mcs(backbone_seq, gene_seq)
+        else:
+            # Fall back to standard MCS handler
+            insertion_result = MCSHandler.insert_gene_at_mcs(backbone_seq, gene_seq)
+        
+        final_seq = insertion_result["final_sequence"]
+        insertion_method = insertion_result["method"]
+        insertion_position = insertion_result["insertion_position"]
+        
+        logger.info(f"Gene inserted using method: {insertion_method} at position {insertion_position}")
 
-        breakpoint()
         
         # Format the output sequence based on user selection
         if selected_format == "FASTA":
-            sequence_output = f">Construct (basic concatenation): {gene_name} in {backbone_name}\n{final_seq}"
+            sequence_output = f">Construct ({insertion_method}): {gene_name} in {backbone_name}\n{final_seq}"
         elif selected_format == "GENBANK":
-            sequence_output = f"LOCUS   {gene_name.replace(' ', '_')}_in_{backbone_name.replace(' ', '_')} {len(final_seq)} bp\nDEFINITION  Expression construct basic concatenation\nSEQUENCE\n{final_seq}\n//"
+            sequence_output = f"LOCUS   {gene_name.replace(' ', '_')}_in_{backbone_name.replace(' ', '_')} {len(final_seq)} bp\nDEFINITION  Expression construct ({insertion_method})\nSEQUENCE\n{final_seq}\n//"
         else:  # RAW_SEQUENCE
-            sequence_output = f" This is a simple concatenation!! {final_seq}"
-        
+            sequence_output = final_seq
         # Build response message with actual sequence
-        response_message = f"""Your construct sequence is ready:
+        import textwrap
 
-CONSTRUCT SEQUENCE:
-{sequence_output}
+        response_message = textwrap.dedent(f"""\
+            
+            Your construct sequence is ready:
 
-Design Summary:
-- Gene: {gene_name}
-- Plasmid Backbone: {backbone_name}
-- Total Size: {len(final_seq)} bp
-- Output Format: {selected_format}
+            CONSTRUCT SEQUENCE:
+            {sequence_output}
 
-This sequence is ready for synthesis and expression testing."""
+            Design Summary:
+            - Gene: {gene_name}
+            - Plasmid Backbone: {backbone_name}
+            - Total Size: {len(final_seq)} bp
+            - Insertion Method: {insertion_method} (at position {insertion_position})
+            - Output Format: {selected_format}
+
+            This sequence is ready for synthesis and expression testing.""")
 
         return (
             Result_ProcessUserInput(
