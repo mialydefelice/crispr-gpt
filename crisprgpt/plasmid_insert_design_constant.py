@@ -21,7 +21,7 @@ User Input:
 Response format (JSON):
 {{
     "Has exact sequence": # yes or no
-    "Target gene": # extracted gene name or identifier. If not available, output NA.
+    "Target gene": # Look for a gene name within the provided sequence. If FASTA was provided the name will be after >. If not available, output NA.
     "Sequence provided": # if user provided a sequence, summarize it (first 50 chars and length). Otherwise null.
     "Suggested variants": # if applicable, suggest variants. Otherwise empty list.
     "rationale": # explanation of your analysis.
@@ -141,14 +141,15 @@ While we can suggest some great resources and online tools to help you design an
 """
 
 PROMPT_REQUEST_SEQUENCE_VALIDATION = """
-Great! We have identified your target gene. Here's a summary of your construct:
+Great! We have your target gene. Here's a summary of your construct:
 
 1. Target Gene: {gene_name}
-2. Plasmid Backbone: {plasmid_backbone}
+2. Plasmid Backbone: {backbone_name}
 
 Would you like to proceed with this construct, or would you like to make any modifications?
 """
 
+# To be added later
 future_additions: """
 3. Predicted Protein Expression Level: {predicted_expression_level}
 4. Important Featuress to Check:

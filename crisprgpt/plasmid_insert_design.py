@@ -61,12 +61,43 @@ class CustomBackboneInput(BaseUserInputState):
     def step(cls, user_message, **kwargs):
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        # Check if a sequence was actually provided
+        sequence_provided = response.get("SequenceProvided", "no").lower() == "yes"
+        sequence_length = response.get("SequenceLength")
+        sequence_extracted = response.get("SequenceExtracted", "NA")
+        
+        if not sequence_provided or not sequence_length:
+            # Graceful failure: user only provided name, not sequence
+            error_message = """We weren't able to extract a plasmid sequence from your input. 
+
+                To use a custom backbone, please provide:
+                1. The plasmid name/identifier
+                2. The actual DNA sequence (in FASTA or raw ACGT format)
+
+                You can also try:
+                - Providing the sequence from a GenBank file
+                - Pasting the sequence from a plasmid repository
+                - Going back to select a standard backbone (pcDNA3.1(+) or pAG)
+
+                Please try again with the sequence included."""
+            
+            return (
+                Result_ProcessUserInput(
+                    status="error",
+                    response=error_message,
+                ),
+                CustomBackboneInput,  # Allow user to try again
+            )
+        
         text_response = f"Custom Backbone: {response.get('BackboneName', 'Unknown')}\n"
+
+        breakpoint()
+
         
         # Build summary of provided information
         details = []
-        if response.get("SequenceProvided") == "yes":
-            details.append(f"Sequence length: {response.get('SequenceLength', 'Unknown')}")
+        details.append(f"Sequence length: {sequence_length}")
         if response.get("Promoter"):
             details.append(f"Promoter: {response.get('Promoter')}")
         if response.get("SelectionMarker"):
@@ -77,10 +108,12 @@ class CustomBackboneInput(BaseUserInputState):
         if details:
             text_response += " | ".join(details)
         
+        # Store the backbone data in result so it gets saved to memory with state name "CustomBackboneInput"
+        # This ensures the sequence and other details are available downstream
         return (
             Result_ProcessUserInput(
                 status="success",
-                result=response,
+                result=response,  # This will be saved to memory["CustomBackboneInput"]
                 response=text_response,
             ),
             GeneInsertSelection,
@@ -114,7 +147,65 @@ class GeneInsertSelection(BaseUserInputState):
                 result=response,
                 response=text_response,
             ),
-            SequenceValidation,
+            ConstructConfirmation,
+        )
+
+
+class ConstructConfirmation(BaseUserInputState):
+    prompt_process = PROMPT_PROCESS_SEQUENCE_VALIDATION
+    request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        memory = kwargs.get("memory", {})
+        
+        # Extract data from previous states
+        gene_result = memory.get("GeneInsertSelection")
+        backbone_result = memory.get("StateStep1Backbone")
+        custom_backbone_result = memory.get("CustomBackboneInput")
+        
+        gene_data = gene_result.result if gene_result else {}
+        
+        if custom_backbone_result.result:
+            backbone_data = custom_backbone_result.result
+        elif backbone_result:
+            backbone_data = backbone_result.result
+        else:
+            backbone_data = None
+        
+        # Extract values
+        gene_name = gene_data.get("Target gene", "Unknown") if isinstance(gene_data, dict) else "Unknown"
+        backbone_name = backbone_data.get("BackboneName", "Unknown") if isinstance(backbone_data, dict) else "Unknown"
+        
+        # Format the request_message with actual values for display
+        detailed_message = cls.request_message.format(gene_name=gene_name, backbone_name=backbone_name)
+        
+        # Override request_message temporarily with detailed version
+        original_request_message = cls.request_message
+        cls.request_message = detailed_message
+        
+        # Process user response
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        status = response.get("Status", "").lower()
+        if "request_modifications" in status or "modify" in status:
+            next_state = GeneInsertSelection
+        else:
+            # Default to proceeding with output format selection
+            next_state = OutputFormatSelection
+        
+        # Restore original request_message
+        cls.request_message = original_request_message
+        
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                thoughts=response.get("Thoughts", ""),
+                result=response,
+                response=""  # Empty response to avoid duplication
+            ),
+            next_state,
         )
 
 
@@ -129,19 +220,27 @@ class SequenceValidation(BaseUserInputState):
         # Extract data from previous states
         gene_result = memory.get("GeneInsertSelection")
         backbone_result = memory.get("StateStep1Backbone")
+        custom_backbone_result = memory.get("CustomBackboneInput")
         
         gene_data = gene_result.result if gene_result else {}
-        backbone_data = backbone_result.result if backbone_result else {}
+        if custom_backbone_result.result:
+            backbone_data = custom_backbone_result.result
+        elif backbone_result:
+            backbone_data = backbone_result.result
+        else:
+            backbone_data = None
         
         # Extract values
         gene_name = gene_data.get("Target gene", "Unknown") if isinstance(gene_data, dict) else "Unknown"
         backbone_name = backbone_data.get("BackboneName", "Unknown") if isinstance(backbone_data, dict) else "Unknown"
+
         
-        # Format the request message with actual data
-        formatted_message = cls.request_message.format(
-            gene_name=gene_name,
-            plasmid_backbone=backbone_name
-        )
+        # Format the request_message with actual values for display
+        detailed_message = cls.request_message.format(gene_name=gene_name, backbone_name=backbone_name)
+        
+        # Override request_message temporarily with detailed version
+        original_request_message = cls.request_message
+        cls.request_message = detailed_message
         
         # Process user response
         prompt = cls.prompt_process.format(user_message=user_message)
@@ -154,12 +253,15 @@ class SequenceValidation(BaseUserInputState):
             # Default to proceeding with output format selection
             next_state = OutputFormatSelection
         
+        # Restore original request_message
+        cls.request_message = original_request_message
+        
         return (
             Result_ProcessUserInput(
                 status="success",
                 thoughts=response.get("Thoughts", ""),
                 result=response,
-                response=formatted_message
+                response=""  # Empty response to avoid duplication
             ),
             next_state,
         )
@@ -179,16 +281,30 @@ class OutputFormatSelection(BaseUserInputState):
         # Retrieve stored design information from previous states
         gene_result = memory.get("GeneInsertSelection")
         backbone_result = memory.get("StateStep1Backbone")
+        custom_backbone_result = memory.get("CustomBackboneInput")
 
         # DO NOT PROVIDE DEFAULTS, Go back to the user if missing.
         
         # Extract result data from Result_ProcessUserInput objects
         gene_data = gene_result.result if gene_result else {}
-        backbone_data = backbone_result.result if backbone_result else {}
+        if custom_backbone_result.result:
+            custom_backbone_data = custom_backbone_result.result
+        elif backbone_result:
+            backbone_data = backbone_result.result
+        else:
+            backbone_data = None
         
-        # Build final design summary
+        # Build final design summary - use custom backbone if available, otherwise standard
         gene_name = gene_data.get("Target gene") if isinstance(gene_data, dict) else "Gene Insert"
-        backbone_name = backbone_data.get("BackboneName") if isinstance(backbone_data, dict) else None
+        if custom_backbone_data and isinstance(custom_backbone_data, dict):
+            # User provided a custom backbone
+            backbone_name = custom_backbone_data.get("BackboneName")
+            # Get the custom backbone sequence - it could be in either SequenceProvided or SequenceExtracted
+            custom_backbone_seq = custom_backbone_data.get("SequenceExtracted")
+        else:
+            # Standard backbone from StateStep1Backbone
+            backbone_name = backbone_data.get("BackboneName") if isinstance(backbone_data, dict) else None
+            custom_backbone_seq = None
 
         selected_format = response.get("Selected Format", "RAW_SEQUENCE").upper()
         
@@ -221,10 +337,14 @@ class OutputFormatSelection(BaseUserInputState):
         # Fetch backbone sequence from plasmid library
         plasmid_reader = PlasmidLibraryReader()
         plasmid_reader.load_library()
-        
-        # Try to find the plasmid in the library by name
+        breakpoint()
+        # Try to find the plasmid in the library by name, or use custom sequence
         backbone_seq = None
-        if backbone_name:
+        if custom_backbone_seq:
+            # Use the custom backbone sequence provided by user
+            backbone_seq = custom_backbone_seq
+            logger.info(f"Using custom backbone sequence for {backbone_name}")
+        elif backbone_name:
             backbone_details = plasmid_reader.get_plasmid_sequence_details(backbone_name)
             if not backbone_details.empty:
                 backbone_seq = backbone_details['Sequence']

@@ -175,8 +175,9 @@ PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION = """Please act as an expert in plasmi
 
 Instruction:
 
-If the user provides a sequence (containing ATGC letters), extract key information.
-If the user provides plasmid details/name, organize the information provided.
+If the user provides a sequence (containing ATGC letters), extract key information and the sequence. Put the full sequence into the SequenceProvided field.
+If the user provides plasmid details/name, organize the information provided, and use the information to look up the relevant plasmid and get the sequence. Most obvious places to look are at addgene.org, https://www.addgene.org/vector-database, invitrogen.com, promega.com and other similar sites. Save this sequence within the SequenceExtracted field.
+If the user provides a URL, go to the website and look for the plasmid sequence and details there.
 
 User Input:
 
@@ -190,6 +191,7 @@ Response format (JSON):
 "SelectionMarker": "<selection marker if mentioned>",
 "Origin": "<origin of replication if mentioned>",
 "SequenceProvided": "<yes or no>",
+"SequenceExtracted": "<Full plasmid sequence if this was extracted for the user from an input name and details or if the User provided the plasmid sequence directly.>",
 "Details": "<summary of provided information>",
 "Status": "<confirmed or needs_clarification>"
 }}"""
