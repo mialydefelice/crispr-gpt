@@ -1,6 +1,6 @@
 from .logic import BaseState, Result_ProcessUserInput, BaseUserInputState, StateFinal
 from llm import OpenAIChat
-from . import base_editing, knockout, prime_editing, act_rep
+from . import base_editing, knockout, prime_editing, act_rep, plasmid_insert_design
 from .automation import StateAutomate
 
 PROMPT_REQUEST_ENTRY = """Welcome to CRISPR-GPT. I can help with the following tasks. Please select 
@@ -8,10 +8,6 @@ one to continue.
 
 1. Meta-Mode (Step-by-Step Guidance on Pre-defined Meta-Task)
 2. Auto-Mode (Customized Guidance on Free-style User Request)
-
-Note: Chat with ChatGPT augmented with our up-to-date knowledge base 
-directly by entering Questions followed by "Q:". For example, "Q: What is 
-CRISPR?"
 """
 
 PROMPT_PROCESS_ENTRY = """
@@ -24,10 +20,6 @@ one to continue.
 
 1. Meta-Mode (Step-by-Step Guidance on Pre-defined Meta-Task)
 2. Auto-Mode (Customized Guidance on Free-style User Request)
-
-Note: Chat with ChatGPT augmented with our up-to-date knowledge base 
-directly by entering Questions followed by "Q:". For example, "Q: What is 
-CRISPR?"
 "
 
 User Input:
@@ -79,10 +71,11 @@ PROMPT_REQUEST_META = """Please select the general gene editing scenarios to con
 2. CRISPR Base Editing Without Double-Strand Breaks. (Not Supported in Lite version)
 3. Generating Small Insertion/deletion/base editing through Prime Editing. (Not Supported in Lite version)
 4. Activation or Repression of Target Genes Using CRISPR. (Not Supported in Lite version)
+5. Designing an Expression Plasmid.
 """
 
 PROMPT_PROCESS_META = """
-Please act as an expert in CRISPR technology. Given the user instruction and user input, think step by step and generate a choice for the user. Please format your response and make sure it is parsable by JSON.
+Please act as an expert in CRISPR technology and molecular biology. Given the user instruction and user input, think step by step and generate a choice for the user. Please format your response and make sure it is parsable by JSON.
 
 User Instructions:
 
@@ -91,6 +84,7 @@ User Instructions:
 2. CRISPR Base Editing Without Double-Strand Breaks.
 3. Generating Small Insertion/deletion/base editing through Prime Editing.
 4. Activation or Repression of Target Genes Using CRISPR.
+5. Designing an Expression Plasmid.
 "
 
 User Input:
@@ -138,6 +132,11 @@ class MetaStateChoice(BaseUserInputState):
         elif choice.lower() in ["4", "iv", "(4)", "(iv)"]:
             return [
                 act_rep.StateError,
+                StateFinal,
+            ]
+        elif choice.lower() in ["5", "v", "(5)", "(v)"]:
+            return [
+                plasmid_insert_design.StateEntry,
                 StateFinal,
             ]
         else:
