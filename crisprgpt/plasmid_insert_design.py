@@ -15,19 +15,52 @@ logger = get_logger(__name__)
 
 
 class StateEntry(BaseState):
+    """Entry point state for the expression plasmid design workflow.
+    
+    Displays initial greeting and routes to backbone selection. This state
+    does not request user input, only provides the entry prompt.
+    """
     request_user_input = False
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Display entry message and transition to backbone selection.
+        
+        Args:
+            user_message: Not used at entry point
+            **kwargs: Additional context (not used)
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+        """
         return Result_ProcessUserInput(response=PROMPT_REQUEST_ENTRY_EXPRESSION), StateStep1Backbone
 
 
 class StateStep1Backbone(BaseUserInputState):
+    """State for selecting expression plasmid backbone.
+    
+    Asks user to choose between standard backbones (pcDNA3.1(+), pAG) or provide
+    a custom backbone. Uses LLM to parse user response and determine selection.
+    """
     prompt_process = PROMPT_PROCESS_STEP1_BACKBONE_INQUIRY_EXPRESSION
     request_message = PROMPT_REQUEST_STEP1_INQUIRY_EXPRESSION
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process backbone selection choice.
+        
+        Uses LLM to parse user input and identify if they selected a standard
+        backbone or want to provide a custom one.
+        
+        Args:
+            user_message: User's backbone selection response
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to CustomBackboneInput if custom backbone selected
+                - Routes to GeneInsertSelection if standard backbone selected
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
         text_response = str(response)
@@ -54,11 +87,34 @@ class StateStep1Backbone(BaseUserInputState):
 
 
 class CustomBackboneInput(BaseUserInputState):
+    """State for collecting and validating custom plasmid backbone information.
+    
+    Asks user to provide custom plasmid backbone details including name and sequence.
+    Validates that a sequence was actually provided; if not, shows error and loops
+    back to allow retry. Uses LLM to extract backbone name, sequence, and metadata.
+    """
     prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
     request_message = PROMPT_REQUEST_CUSTOM_BACKBONE_EXPRESSION
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process custom backbone input and validate sequence extraction.
+        
+        Attempts to extract plasmid name, sequence, and features from user input.
+        If user provides requirements instead of a name (e.g., "mammalian expression plasmid 
+        with constitutive promoter"), uses Biomni to recommend and select an appropriate backbone.
+        If sequence extraction fails, displays helpful error message and loops back
+        to allow user to retry with sequence included.
+        
+        Args:
+            user_message: User's custom backbone description/sequence/requirements
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Loops back to CustomBackboneInput if sequence missing (with error)
+                - Routes to GeneInsertSelection if sequence successfully extracted/selected
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
@@ -66,9 +122,96 @@ class CustomBackboneInput(BaseUserInputState):
         sequence_provided = response.get("SequenceProvided", "no").lower() == "yes"
         sequence_length = response.get("SequenceLength")
         sequence_extracted = response.get("SequenceExtracted", "NA")
+        backbone_name = response.get("BackboneName", "Unnamed Backbone")
         
-        if not sequence_provided or not sequence_length:
-            # Graceful failure: user only provided name, not sequence
+        if not sequence_provided:
+            # If not sequence was provided figure out how to pull a backbone from the user inputs.
+            # Try to determine if user provided requirements instead of a specific plasmid
+            # TODO: This does not work, need to pull from response
+            if backbone_name != "Unnamed Backbone":
+                # User provided a plasmid name, but no sequence
+                logger.info(f"User provided backbone name without sequence: {backbone_name}")
+                biomni_agent = get_biomni_agent()
+
+                if biomni_agent is not None:
+                    try:
+                        # Use Biomni to look up plasmid by name
+                        biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
+                        biomni_result = biomni_result[0]
+
+                        match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result, re.DOTALL)
+
+                        if not match:
+                            raise ValueError("No <solution> JSON block found")
+
+                        json_str = match.group(1)
+
+                        # 2. Load JSON into dictionary
+                        data = json.loads(json_str)
+
+                        # 3. Pull out the DNA sequence
+                        breakpoint()
+
+                        plasmid_name = data.get("Plasmid_Name")
+                        accession_number = data.get("Accession_Number")
+                        full_dna_sequence = data.get("Full_DNA_Sequence")
+                        sequence_length = data.get("Sequence_Length")
+                        source_repository = data.get("Source_repository")
+                        output_response = {
+                            "PlasmidName": plasmid_name,
+                            "AccessionNumber": accession_number,
+                            "DNASequence": full_dna_sequence,
+                            "SequenceLength": sequence_length,
+                            "SourceRepository": source_repository}
+                        breakpoint()
+
+                        if not biomni_result.get("error"):
+                            logger.info(f"Biomni successfully looked up backbone: {biomni_result.get('BackboneName')}")
+                            # After Biomni looks up backbone, ask user to confirm and provide sequence
+                            confirmation_message = f"""Great! I've found the plasmid backbone '{biomni_result.get('BackboneName')}'."""
+                        else:
+                            logger.warning(f"Biomni could not look up backbone: {biomni_result.get('error')}")
+                    except Exception as e:
+                        logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
+            
+                breakpoint()
+            else:
+                is_requirements = (
+                "expression" in user_message.lower() or
+                "mammalian" in user_message.lower() or
+                "bacterial" in user_message.lower() or
+                "constitutive" in user_message.lower() or
+                "inducible" in user_message.lower() or
+                ("promoter" in user_message.lower() and backbone_name == "Unnamed Backbone") or
+                "cells" in user_message.lower()
+            )
+                # User provided requirements, use Biomni to select appropriate backbone
+                logger.info(f"User provided backbone requirements instead of plasmid name: {user_message}")
+                biomni_agent = get_biomni_agent()
+                
+                if biomni_agent:
+                    try:
+                        # Use Biomni to select appropriate backbone
+                        biomni_result = biomni_agent.select_backbone_from_requirements(user_message)
+                        breakpoint()
+                        if not biomni_result.get("error"):
+                            logger.info(f"Biomni successfully selected backbone for requirements")
+                            # After Biomni selects backbone, ask user to confirm and provide sequence
+                            confirmation_message = f"""Great! Based on your requirements, I've identified an appropriate plasmid backbone.
+""" 
+                            
+
+                        else:
+                            logger.warning(f"Biomni could not select backbone: {biomni_result.get('error')}")
+                    except Exception as e:
+                        logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
+                else:
+                    logger.warning("Biomni agent not available for backbone selection from requirements")
+            breakpoint()
+            #biomni_result
+            #if backbone_ex
+            # If we reach here, either no Biomni or requirements-based selection didn't work
+            # Graceful failure: user only provided name or requirements, not sequence
             error_message = """We weren't able to extract a plasmid sequence from your input. 
 
                 To use a custom backbone, please provide:
@@ -91,9 +234,6 @@ class CustomBackboneInput(BaseUserInputState):
             )
         
         text_response = f"Custom Backbone: {response.get('BackboneName', 'Unknown')}\n"
-
-        breakpoint()
-
         
         # Build summary of provided information
         details = []
@@ -121,11 +261,32 @@ class CustomBackboneInput(BaseUserInputState):
 
 
 class GeneInsertSelection(BaseUserInputState):
+    """State for collecting gene insert information.
+    
+    Asks user to provide either:
+    1. Exact DNA sequence of the gene insert
+    2. Gene name/identifier for sequence lookup
+    
+    Uses LLM to parse response and determine which path to take.
+    """
     prompt_process = PROMPT_PROCESS_AGENT1
     request_message = PROMPT_REQUEST_AGENT1
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process gene insert input (sequence or gene identifier).
+        
+        Parses user input to determine if they provided an exact sequence
+        or a gene name for lookup. Stores original input for later sequence extraction.
+        
+        Args:
+            user_message: User's gene insert input (sequence or gene name)
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to ConstructConfirmation to show design summary
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
         response["original_request"] = user_message
@@ -152,11 +313,33 @@ class GeneInsertSelection(BaseUserInputState):
 
 
 class ConstructConfirmation(BaseUserInputState):
+    """State for displaying construct summary and requesting confirmation.
+    
+    Shows user a summary of the planned construct with:
+    - Gene insert name
+    - Plasmid backbone name
+    
+    Allows user to either proceed to output format selection or modify the gene.
+    """
     prompt_process = PROMPT_PROCESS_SEQUENCE_VALIDATION
     request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Display construct summary and get user confirmation.
+        
+        Retrieves gene and backbone data from memory, formats a detailed summary
+        message with actual values, and asks user to confirm or modify.
+        
+        Args:
+            user_message: User's confirmation/modification response
+            **kwargs: Additional context including memory with previous results
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneInsertSelection if user wants to modify
+                - Routes to OutputFormatSelection if user confirms construct
+        """
         memory = kwargs.get("memory", {})
         
         # Extract data from previous states
@@ -268,11 +451,41 @@ class SequenceValidation(BaseUserInputState):
 
 
 class OutputFormatSelection(BaseUserInputState):
+    """State for selecting output format and generating final construct sequence.
+    
+    Main processing state that:
+    1. Gets user's preferred output format (GenBank, FASTA, Raw)
+    2. Retrieves gene and backbone sequences
+    3. Identifies gene if not named
+    4. Looks up backbone in library or uses custom backbone sequence
+    5. Intelligently inserts gene into backbone using MCS handler (with optional Biomni)
+    6. Formats output in requested format
+    7. Displays final construct sequence
+    """
     prompt_process = PROMPT_PROCESS_OUTPUT_FORMAT
     request_message = PROMPT_REQUEST_OUTPUT_FORMAT
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process output format selection and generate final construct.
+        
+        Complex multi-step function that orchestrates the final sequence generation:
+        - Parses output format selection (GenBank/FASTA/Raw)
+        - Extracts gene sequence from original user input
+        - Identifies unnamed genes using LLM
+        - Retrieves backbone (standard library or custom)
+        - Uses Biomni (if available) or MCSHandler to intelligently insert gene
+        - Formats output according to user preference
+        
+        Args:
+            user_message: User's output format selection
+            **kwargs: Additional context including memory with all previous results
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to FinalSummary with complete construct sequence
+                - Returns errors to GeneInsertSelection if issues occur
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
         
@@ -436,11 +649,32 @@ class OutputFormatSelection(BaseUserInputState):
 
 
 class FinalSummary(BaseUserInputState):
+    """Final state offering next actions after construct generation.
+    
+    Presents user with options to:
+    1. Download/save the generated construct
+    2. Modify the design (go back to gene insert selection)
+    3. Start a completely new plasmid design project
+    """
     prompt_process = PROMPT_PROCESS_FINAL_SUMMARY
     request_message = PROMPT_REQUEST_FINAL_SUMMARY
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process user's next action choice and route accordingly.
+        
+        Parses user decision and routes to appropriate next state or terminates workflow.
+        
+        Args:
+            user_message: User's choice for next action
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to StateEntry if user starts new project
+                - Routes to GeneInsertSelection if user wants to modify design
+                - Routes to None (ends workflow) if user proceeds with download
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 

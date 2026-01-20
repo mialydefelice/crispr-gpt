@@ -185,7 +185,8 @@ User Input:
 
 Response format (JSON):
 {{
-"BackboneName": "<name or 'custom' if unknown>",
+"BackboneName": "<Look through the user provided text and extract a the plasmid name. Try to match and format to known plasmid names enter as 'tbd' if unknown>",
+"BackboneAccession":"<Extract accession number if mentioned or if the backbone name is given, try to determine the accession number from known databases. If not available, enter 'NA'>",
 "SequenceLength": "<length in bp if provided, or NA>",
 "Promoter": "<promoter type if mentioned>",
 "SelectionMarker": "<selection marker if mentioned>",

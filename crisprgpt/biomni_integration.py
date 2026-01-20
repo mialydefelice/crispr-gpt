@@ -1,5 +1,7 @@
 """Biomni integration for plasmid design tasks."""
 
+import json
+import re
 from util import get_logger
 from typing import Optional, Dict, Any
 
@@ -91,7 +93,135 @@ Return as JSON with keys: mcs_start, mcs_end, restriction_sites, insertion_point
             logger.error(f"Biomni task execution failed: {e}")
             return {"error": str(e), "source": "biomni"}
     
-    def design_construct(self, backbone_seq: str, gene_seq: str, gene_name: str = "insert") -> Dict[str, Any]:
+    def select_backbone_from_requirements(self, requirements: str) -> Dict[str, Any]:
+        """
+        Use Biomni to select an appropriate plasmid backbone based on user requirements.
+        
+        This method helps when user provides requirements like:
+        "an expression plasmid for mammalian cells with a constitutive promoter"
+        instead of naming a specific plasmid.
+        
+        Args:
+            requirements: String describing the desired backbone characteristics
+                         (e.g., "mammalian expression, constitutive promoter, low copy")
+            
+        Returns:
+            Dictionary with recommended plasmid name, characteristics, and sequence info
+        """
+        if not self.agent:
+            logger.warning("Biomni agent not available, cannot select backbone")
+            return {"error": "Biomni agent not initialized", "recommendations": None}
+        
+        try:
+            task = f"""Based on the following requirements, recommend the most suitable plasmid backbone:
+
+Requirements: {requirements}
+
+Please analyze and recommend:
+1. The best plasmid(s) that meet these requirements
+2. Explain why each recommended plasmid is suitable
+3. Provide key characteristics:
+   - Host organism compatibility
+   - Promoter type
+   - Selection markers
+   - Copy number
+   - Size
+4. Retrieve the DNA sequence for the top recommendation
+5. Include source/repository information
+
+Format your response with:
+- Recommended plasmid name
+- Key features and why it matches requirements
+- Full DNA sequence (ACGT format)
+- Sequence length in bp
+- Repository/source"""
+            
+            # Execute task with Biomni
+            self.agent.go(task)
+            
+            result = {
+                "source": "biomni",
+                "task": "backbone_selection_from_requirements",
+                "status": "completed",
+                "requirements": requirements
+            }
+            
+            logger.info(f"Biomni backbone selection completed for requirements: {requirements}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Biomni backbone selection failed: {e}")
+            return {"error": str(e), "source": "biomni"}
+    
+    def lookup_plasmid_by_name(self, backbone_info: dict) -> Dict[str, Any]:
+        """
+        Use Biomni to extract or look up a plasmid backbone sequence from limited info.
+        
+        This method helps retrieve the actual DNA sequence when user provides only
+        a plasmid name or partial information.
+        
+        Args:
+            backbone_info: Dictionary containing backbone information from user input
+                          (e.g., name, promoter, selection marker, origin)
+            
+        Returns:
+            Dictionary with extracted sequence and metadata
+        """
+        if not self.agent:
+            logger.warning("Biomni agent not available, cannot extract backbone sequence")
+            return {"error": "Biomni agent not initialized", "sequence": None}
+        
+        try:
+            # Build a comprehensive prompt with the backbone info
+            backbone_name = backbone_info.get("BackboneName", "unknown plasmid")
+            promoter = backbone_info.get("Promoter", "")
+            marker = backbone_info.get("SelectionMarker", "")
+            origin = backbone_info.get("Origin", "")
+            
+            info_parts = []
+            if promoter:
+                info_parts.append(f"Promoter: {promoter}")
+            if marker:
+                info_parts.append(f"Selection marker: {marker}")
+            if origin:
+                info_parts.append(f"Origin: {origin}")
+            
+            info_str = ", ".join(info_parts) if info_parts else "limited information"
+            
+            task = f"""Please retrieve the DNA sequence for the following plasmid:
+
+Plasmid Name: {backbone_name}
+Additional Info: {info_str}
+
+Instructions:
+1. Search for this plasmid in standard repositories (AddGene, NCBI, etc.), pull the accession number if available, from addgene, then use the tool get_plasmid_sequence to retrieve the sequence.
+    If the accession number is not found in the main addgene repository try searching addgene addgene.org/vector-database
+2. Return the complete DNA sequence as a string of ACGT letters (no other letters or spaces should be included) as a string. Make sure to output the full sequence.
+3. Include key features/annotations if available
+4. If not found exactly, suggest similar available plasmids
+
+Do not provide placeholders if a DNA sequence is not found, provide an empty string.
+
+Please provide the following (in JSON format):
+- plasmid_name:string
+- accession_number: string (if available) else none
+- full_dna_sequence: (ACGT format)
+- sequence_length: (in bp)
+- sequence_source: string (repository/source)"""
+            
+            # Execute task with Biomni
+            response=self.agent.go(task)
+           
+            logger.info(f"Biomni backbone extraction requested for: {backbone_name}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Biomni backbone sequence extraction failed: {e}")
+
+            return {"error": str(e), "sequence": None, "source": "biomni"}
+
+    
+    def design_construct(self, backbone_seq: str, gene_seq: str, gene_name: str) -> Dict[str, Any]:
         """
         Use Biomni to design the best way to construct the plasmid.
         
