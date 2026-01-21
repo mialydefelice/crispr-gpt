@@ -171,28 +171,74 @@ Option B: Plasmid Details
 Please provide as much detail as possible.
 """
 
-PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION = """Please act as an expert in plasmid design. Given the user input about a custom plasmid backbone, extract and validate the provided information. Format your response as JSON.
+PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION = """
+You are an expert in plasmid and expression vector design.
 
-Instruction:
+Your task is to extract, validate, and (when necessary) infer plasmid backbone information from the user input below. 
+You must return a SINGLE valid JSON object matching the schema exactly. 
+Do not include any text outside the JSON object.
 
-If the user provides a sequence (containing ATGC letters), extract key information and the sequence. Put the full sequence into the SequenceProvided field.
-If the user provides plasmid details/name, organize the information provided, and use the information to look up the relevant plasmid and get the sequence. Most obvious places to look are at addgene.org, https://www.addgene.org/vector-database, invitrogen.com, promega.com and other similar sites. Save this sequence within the SequenceExtracted field.
-If the user provides a URL, go to the website and look for the plasmid sequence and details there.
+────────────────────────
+INSTRUCTIONS
+────────────────────────
 
-User Input:
+1. Plasmid identification
+- If a plasmid name is mentioned, normalize it to the closest known plasmid name.
+- If not clear plasmid name is provided, try to determine a suitable plasmid based on details given in the user specifications, and put the suggestion in the filed BackboneName.
+- If no suitable plasmid can be determined, leave "BackboneName" as an empty string.
+- If an accession number is mentioned or can be confidently determined, include it.
+  Otherwise set "BackboneAccession" = "".
 
+2. Sequence handling
+- If the user provides a DNA sequence (containing only A, T, G, C characters, case-insensitive):
+  - Set "SequenceProvided" = true
+  - Place the FULL sequence (uppercase, no spaces or line breaks) in "SequenceExtracted"
+- If the user does NOT provide a sequence:
+  - Set "SequenceProvided" = false
+  - If a plasmid name or identifying details are provided, or a plasmid backbone is selected within the plasmid identification step, attempt to look up the plasmid sequence
+    using reputable public sources (e.g., Addgene, Addgene Vector Database, Invitrogen, Promega, NCBI).
+  - If a sequence is successfully found, place it in "SequenceExtracted".
+  - If no sequence can be confidently obtained, leave "SequenceExtracted" as an empty string.
+  - Do not make up a sequence. Do not modify any sequence you find. Strip any trailing whitespace.
+
+3. URL handling
+- If the user provides a URL, include it in "BackboneURL". Do not modify the URL.
+- If no URL is provided but a plasmid name or accession is identified, attempt to find a reputable URL for that plasmid (e.g., Addgene, NCBI).
+- If the URL does not contain an extractable sequence, leave "SequenceExtracted" empty.
+- Do not halucinate URLs. If providing a URL is not possible, leave "BackboneURL" as an empty string.
+- If providing a URL, ensure it is a valid link to a reputable source for plasmid information (e.g., Addgene, NCBI).
+
+4. Feature inference
+- If Promoter, SelectionMarker, or Origin are explicitly mentioned, extract them.
+- If not mentioned, attempt to infer them from the identified plasmid when possible.
+- If inference is not possible, leave the field as an empty string.
+
+5. General descriptions
+- If the user provides only a general description (e.g., desired expression system or features):
+  - Suggest a reasonable plasmid backbone that matches most or all criteria.
+  - Populate "Details" with a clear justification for why this plasmid was selected.
+
+6. Status field
+- Use "confirmed" only if the plasmid identity and/or sequence is confidently determined.
+- Use "needs_clarification" if key information is missing or uncertain.
+
+────────────────────────
+USER INPUT
+────────────────────────
 {user_message}
 
-Response format (JSON):
+────────────────────────
+RESPONSE FORMAT (JSON ONLY)
+────────────────────────
 {{
-"BackboneName": "<Look through the user provided text and extract a the plasmid name. Try to match and format to known plasmid names enter as 'tbd' if unknown>",
-"BackboneAccession":"<Extract accession number if mentioned or if the backbone name is given, try to determine the accession number from known databases. If not available, enter 'NA'>",
-"SequenceLength": "<length in bp if provided, or NA>",
-"Promoter": "<promoter type if mentioned>",
-"SelectionMarker": "<selection marker if mentioned>",
-"Origin": "<origin of replication if mentioned>",
-"SequenceProvided": "<yes or no>",
-"SequenceExtracted": "<Full plasmid sequence if this was extracted for the user from an input name and details or if the User provided the plasmid sequence directly.>",
-"Details": "<summary of provided information>",
-"Status": "<confirmed or needs_clarification>"
+  "BackboneName": "",
+  "BackboneAccession": "",
+  "SequenceProvided": false,
+  "SequenceExtracted": "",
+  "Details": "",
+  "Status": "",
+  "BackboneURL": "",
+  "Promoter": "",
+  "SelectionMarker": "",
+  "Origin": ""
 }}"""

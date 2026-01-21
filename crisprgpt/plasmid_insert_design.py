@@ -9,6 +9,7 @@ from .plasmid_mcs_handler import MCSHandler
 from .biomni_integration import get_biomni_agent
 from llm import OpenAIChat
 import time
+import json
 from util import get_logger
 
 logger = get_logger(__name__)
@@ -119,94 +120,99 @@ class CustomBackboneInput(BaseUserInputState):
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
         # Check if a sequence was actually provided
-        sequence_provided = response.get("SequenceProvided", "no").lower() == "yes"
-        sequence_length = response.get("SequenceLength")
-        sequence_extracted = response.get("SequenceExtracted", "NA")
-        backbone_name = response.get("BackboneName", "Unnamed Backbone")
+        sequence_provided = response.get("SequenceProvided")
+        sequence_extracted = response.get("SequenceExtracted")
+        backbone_name = response.get("BackboneName").strip()
         
-        if not sequence_provided:
-            # If not sequence was provided figure out how to pull a backbone from the user inputs.
-            # Try to determine if user provided requirements instead of a specific plasmid
-            # TODO: This does not work, need to pull from response
-            if backbone_name != "Unnamed Backbone":
-                # User provided a plasmid name, but no sequence
-                logger.info(f"User provided backbone name without sequence: {backbone_name}")
-                biomni_agent = get_biomni_agent()
-
-                if biomni_agent is not None:
-                    try:
-                        # Use Biomni to look up plasmid by name
-                        biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
-                        biomni_result = biomni_result[0]
-
-                        match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result, re.DOTALL)
-
-                        if not match:
-                            raise ValueError("No <solution> JSON block found")
-
-                        json_str = match.group(1)
-
-                        # 2. Load JSON into dictionary
-                        data = json.loads(json_str)
-
-                        # 3. Pull out the DNA sequence
-                        breakpoint()
-
-                        plasmid_name = data.get("Plasmid_Name")
-                        accession_number = data.get("Accession_Number")
-                        full_dna_sequence = data.get("Full_DNA_Sequence")
-                        sequence_length = data.get("Sequence_Length")
-                        source_repository = data.get("Source_repository")
-                        output_response = {
-                            "PlasmidName": plasmid_name,
-                            "AccessionNumber": accession_number,
-                            "DNASequence": full_dna_sequence,
-                            "SequenceLength": sequence_length,
-                            "SourceRepository": source_repository}
-                        breakpoint()
-
-                        if not biomni_result.get("error"):
-                            logger.info(f"Biomni successfully looked up backbone: {biomni_result.get('BackboneName')}")
-                            # After Biomni looks up backbone, ask user to confirm and provide sequence
-                            confirmation_message = f"""Great! I've found the plasmid backbone '{biomni_result.get('BackboneName')}'."""
-                        else:
-                            logger.warning(f"Biomni could not look up backbone: {biomni_result.get('error')}")
-                    except Exception as e:
-                        logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
-            
-                breakpoint()
+        if not sequence_provided and not sequence_extracted:
+            # For following steps use Biomni
+            biomni_agent = get_biomni_agent()
+            if biomni_agent is not None:
+                logger.info("Biomni agent available for custom backbone processing")
             else:
-                is_requirements = (
-                "expression" in user_message.lower() or
-                "mammalian" in user_message.lower() or
-                "bacterial" in user_message.lower() or
-                "constitutive" in user_message.lower() or
-                "inducible" in user_message.lower() or
-                ("promoter" in user_message.lower() and backbone_name == "Unnamed Backbone") or
-                "cells" in user_message.lower()
-            )
-                # User provided requirements, use Biomni to select appropriate backbone
-                logger.info(f"User provided backbone requirements instead of plasmid name: {user_message}")
-                biomni_agent = get_biomni_agent()
-                
-                if biomni_agent:
-                    try:
-                        # Use Biomni to select appropriate backbone
-                        biomni_result = biomni_agent.select_backbone_from_requirements(user_message)
-                        breakpoint()
-                        if not biomni_result.get("error"):
-                            logger.info(f"Biomni successfully selected backbone for requirements")
-                            # After Biomni selects backbone, ask user to confirm and provide sequence
-                            confirmation_message = f"""Great! Based on your requirements, I've identified an appropriate plasmid backbone.
-""" 
-                            
+                # TODO: Add an error here and exit back to user input
+                logger.warning("Biomni agent not available for backbone selection from requirements")
+            
+            # Get backbone name if not provided and not extracted in the intial prompt step with OpenAI.
 
-                        else:
-                            logger.warning(f"Biomni could not select backbone: {biomni_result.get('error')}")
-                    except Exception as e:
-                        logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
-                else:
-                    logger.warning("Biomni agent not available for backbone selection from requirements")
+            if not backbone_name:
+                # User provided requirements, use Biomni to select appropriate backbone
+                logger.info(f"User provided backbone requirements instead of plasmid name: {user_message}, will attempt to use Biomni to select backbone.")
+
+                try:
+                    # Use Biomni to select appropriate backbone
+                    # Have not hit this case yet.
+                    breakpoint()
+                    biomni_result = biomni_agent.select_backbone_from_user_input(user_input=user_message, response=response)
+                    breakpoint()
+                    if not biomni_result.get("error"):
+                        logger.info(f"Biomni successfully selected backbone to match requirements: {biomni_result.get('BackboneName')}")
+                        # After Biomni selects backbone, ask user to confirm and provide sequence
+                        confirmation_message = f"""Great! Based on your requirements, I've identified an appropriate plasmid backbone.""" 
+                        
+                    else:
+                        logger.warning(f"Biomni could not select backbone: {biomni_result.get('error')}")
+                except Exception as e:
+                    logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
+                    
+
+            if backbone_name != "":
+                logger.info(f"User provided a backbone name, or one was selected for them given their requirements: {backbone_name}. Attempting to look up sequence...")
+                
+                logger.info(f"Using Biomni to look up backbone: {backbone_name}.")
+                #Try to look up the plasmid by name using Biomni
+                found_backbone_sequence = False
+                max_attempts = 0
+                for _ in range(3):
+                    if found_backbone_sequence is False and max_attempts < 3:
+                        try:
+                            breakpoint()
+                            # Use Biomni to look up plasmid by name
+                            biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
+                            breakpoint()
+                            match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1], re.DOTALL)
+
+                            if not match:
+                                raise ValueError("No <solution> JSON block found")
+
+                            json_str = match.group(1)
+
+                            # 2. Load JSON into dictionary
+                            data = json.loads(json_str)
+
+                            # 3. Pull out the DNA sequence
+                            plasmid_name = data.get("plasmid_name")
+                            accession_number = data.get("accession_number")
+                            full_dna_sequence = data.get("full_dna_sequence")
+                            sequence_length = data.get("sequence_length")
+                            source_repository = data.get("source_repository")
+                            biomni_output_response = {
+                                "PlasmidName": plasmid_name,
+                                "AccessionNumber": accession_number,
+                                "DNASequence": full_dna_sequence,
+                                "SequenceLength": sequence_length,
+                                "SourceRepository": source_repository}
+                            max_attempts += 1
+                            if len(full_dna_sequence) > 0:
+                                found_backbone_sequence = True
+                                response["SequenceExtracted"] = full_dna_sequence
+                            breakpoint()
+
+                            if not biomni_result.get("error"):
+                                logger.info(f"Biomni successfully looked up backbone: {biomni_result.get('BackboneName')}")
+                                # After Biomni looks up backbone, ask user to confirm and provide sequence
+                                confirmation_message = f"""Great! I've found the plasmid backbone '{biomni_result.get('BackboneName')}'."""
+                            else:
+                                logger.warning(f"Biomni could not look up backbone: {biomni_result.get('error')}")
+                        except Exception as e:
+        
+                            logger.warning(f"Biomni backbone selection failed: {e}. Falling back to manual entry.")
+            else:
+                # Have not verified this case yet.
+                logger.warning(f"A backbone was not retrieved given the user input. Please try again.")
+                breakpoint()
+            # If user did not provide a plasmid name, but provided requirements instead, try to use Biomni to select appropriate backbone.
+
             breakpoint()
             #biomni_result
             #if backbone_ex
@@ -232,21 +238,18 @@ class CustomBackboneInput(BaseUserInputState):
                 ),
                 CustomBackboneInput,  # Allow user to try again
             )
-        
-        text_response = f"Custom Backbone: {response.get('BackboneName', 'Unknown')}\n"
-        
-        # Build summary of provided information
-        details = []
-        details.append(f"Sequence length: {sequence_length}")
-        if response.get("Promoter"):
-            details.append(f"Promoter: {response.get('Promoter')}")
-        if response.get("SelectionMarker"):
-            details.append(f"Selection marker: {response.get('SelectionMarker')}")
-        if response.get("Origin"):
-            details.append(f"Origin: {response.get('Origin')}")
-        
-        if details:
-            text_response += " | ".join(details)
+        # Sequence was provided, proceed to next state
+        else:
+            logger.info(f"Edge case: User provided sequence for custom backbone: {backbone_name}, should not be encountering this condition in this state.")
+
+
+
+        # Add the following to the final output
+
+        sequence_length = length(sequence_extracted) if sequence_extracted else 0
+
+
+
         
         # Store the backbone data in result so it gets saved to memory with state name "CustomBackboneInput"
         # This ensures the sequence and other details are available downstream

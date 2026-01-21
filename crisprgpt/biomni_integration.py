@@ -93,18 +93,19 @@ Return as JSON with keys: mcs_start, mcs_end, restriction_sites, insertion_point
             logger.error(f"Biomni task execution failed: {e}")
             return {"error": str(e), "source": "biomni"}
     
-    def select_backbone_from_requirements(self, requirements: str) -> Dict[str, Any]:
+    def select_backbone_from_user_input(self, user_input: str, response) -> Dict[str, Any]:
         """
-        Use Biomni to select an appropriate plasmid backbone based on user requirements.
+        Use Biomni to select an appropriate plasmid backbone based on user user_input.
         
-        This method helps when user provides requirements like:
+        This method helps when user provides user_input like:
         "an expression plasmid for mammalian cells with a constitutive promoter"
         instead of naming a specific plasmid.
         
         Args:
-            requirements: String describing the desired backbone characteristics
+            user_input: String describing the desired backbone characteristics
                          (e.g., "mammalian expression, constitutive promoter, low copy")
-            
+            response: Response from previous processing step
+
         Returns:
             Dictionary with recommended plasmid name, characteristics, and sequence info
         """
@@ -113,41 +114,70 @@ Return as JSON with keys: mcs_start, mcs_end, restriction_sites, insertion_point
             return {"error": "Biomni agent not initialized", "recommendations": None}
         
         try:
-            task = f"""Based on the following requirements, recommend the most suitable plasmid backbone:
+            task = f"""
+            You are an expert in molecular cloning and plasmid design.
 
-Requirements: {requirements}
+Your task is to analyze the user's message and pre-processed response and recommend an appropriate plasmid backbone.
+You are NOT retrieving DNA sequences and must NOT invent accession numbers or sequences.
 
-Please analyze and recommend:
-1. The best plasmid(s) that meet these requirements
-2. Explain why each recommended plasmid is suitable
-3. Provide key characteristics:
-   - Host organism compatibility
-   - Promoter type
-   - Selection markers
-   - Copy number
-   - Size
-4. Retrieve the DNA sequence for the top recommendation
-5. Include source/repository information
+────────────────────────
+TASK
+────────────────────────
 
-Format your response with:
-- Recommended plasmid name
-- Key features and why it matches requirements
-- Full DNA sequence (ACGT format)
-- Sequence length in bp
-- Repository/source"""
+Based on the user's input:
+- Identify whether a specific plasmid backbone is explicitly mentioned.
+- If a backbone is mentioned, normalize the name to a commonly used standard format.
+- If no backbone is mentioned, recommend a well-known plasmid backbone that best fits the user's described use case.
+
+Common use cases include (but are not limited to):
+- Mammalian expression
+- Bacterial cloning
+- Lentiviral delivery
+- AAV vectors
+- CRISPR/Cas systems
+- Reporter constructs
+
+If multiple backbones are plausible, choose the most standard and widely adopted option.
+
+────────────────────────
+RULES
+────────────────────────
+
+- Do NOT retrieve or fabricate DNA sequences.
+- Do NOT fabricate accession numbers, prefer addgene vector database catalog numbers.
+- Use empty strings if information is unknown.
+- If you are recommending (not confirming) a backbone, clearly indicate this.
+- Output must be valid JSON only — no extra text.
+
+────────────────────────
+USER INPUT
+────────────────────────
+{user_input}
+
+────────────────────────
+USER INPUT
+────────────────────────
+{response}
+
+────────────────────────
+OUTPUT FORMAT (JSON ONLY)
+────────────────────────
+{{
+  "BackboneName": "",
+  "BackboneType": "",
+  "IntendedUse": "",
+  "Rationale": "",
+  "Confidence": "high | medium | low",
+  "Status": "confirmed | recommended"
+}}
+            
+            """
             
             # Execute task with Biomni
-            self.agent.go(task)
-            
-            result = {
-                "source": "biomni",
-                "task": "backbone_selection_from_requirements",
-                "status": "completed",
-                "requirements": requirements
-            }
+            output = self.agent.go(task)
             
             logger.info(f"Biomni backbone selection completed for requirements: {requirements}")
-            return result
+            return output
             
         except Exception as e:
             logger.error(f"Biomni backbone selection failed: {e}")
@@ -188,26 +218,68 @@ Format your response with:
             
             info_str = ", ".join(info_parts) if info_parts else "limited information"
             
-            task = f"""Please retrieve the DNA sequence for the following plasmid:
+            task = f"""You are an expert in plasmid sequence retrieval and curation.
 
-Plasmid Name: {backbone_name}
-Additional Info: {info_str}
+Task:
+Given a plasmid backbone name and optional additional information, retrieve the full DNA sequence for the plasmid from authoritative public repositories.
 
-Instructions:
-1. Search for this plasmid in standard repositories (AddGene, NCBI, etc.), pull the accession number if available, from addgene, then use the tool get_plasmid_sequence to retrieve the sequence.
-    If the accession number is not found in the main addgene repository try searching addgene addgene.org/vector-database
-2. Return the complete DNA sequence as a string of ACGT letters (no other letters or spaces should be included) as a string. Make sure to output the full sequence.
-3. Include key features/annotations if available
-4. If not found exactly, suggest similar available plasmids
+Inputs:
+- backbone_name: {backbone_name}
+- additional_info: {info_str}
 
-Do not provide placeholders if a DNA sequence is not found, provide an empty string.
+Lookup Procedure (follow strictly in order):
+1. Search Addgene by plasmid name.
+   - If found, record the Addgene accession / plasmid ID.
+   - Use the tool `get_plasmid_sequence` with the Addgene identifier to retrieve the full DNA sequence.
+2. If not found in the primary Addgene search, search the Addgene Vector Database (addgene.org/vector-database).
+3. If still not found, search other standard repositories (e.g., NCBI GenBank).
+4. If an exact match is not found, identify the closest clearly related plasmid(s) and note them as suggestions.
 
-Please provide the following (in JSON format):
-- plasmid_name:string
-- accession_number: string (if available) else none
-- full_dna_sequence: (ACGT format)
-- sequence_length: (in bp)
-- sequence_source: string (repository/source)"""
+Sequence Requirements:
+- The DNA sequence must be complete and untruncated.
+- The sequence must contain only uppercase A, C, G, and T characters.
+- No whitespace, line breaks, numbers, or ambiguous bases are allowed.
+- If a full verified sequence cannot be retrieved, return an empty string for the sequence fields.
+
+Output Requirements:
+- Return **only valid JSON**.
+- Do not include explanations, comments, or markdown.
+- Do not hallucinate accession numbers or sequences.
+- If information is unavailable, use `null` (not placeholders or guesses).
+
+JSON Schema (must match exactly):
+
+{{
+  "plasmid_name": string,
+  "accession_number": string | null,
+  "full_dna_sequence": string,
+  "sequence_length": number,
+  "sequence_source": string,
+  "annotations": [
+    {
+      "feature_name": string,
+      "start": number,
+      "end": number,
+      "description": string
+    }
+  ],
+  "suggested_similar_plasmids": [
+    {
+      "plasmid_name": string,
+      "accession_number": string | null,
+      "source": string
+    }
+  ]
+}}
+
+Field Rules:
+- plasmid_name: Use the standardized name from the source database.
+- accession_number: Repository identifier if available, otherwise null.
+- full_dna_sequence: Empty string if not found.
+- sequence_length: Length of full_dna_sequence in base pairs (0 if sequence is empty).
+- sequence_source: Name of the repository used (e.g., "Addgene", "NCBI GenBank"), or empty string if not found.
+- annotations: Include key features (e.g., origin, antibiotic resistance, promoter) if available; otherwise return an empty array.
+- suggested_similar_plasmids: Only include if no exact match is found; otherwise return an empty array."""
             
             # Execute task with Biomni
             response=self.agent.go(task)
