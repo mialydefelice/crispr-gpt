@@ -201,24 +201,25 @@ OUTPUT FORMAT (JSON ONLY)
             logger.warning("Biomni agent not available, cannot extract backbone sequence")
             return {"error": "Biomni agent not initialized", "sequence": None}
         
-        try:
-            # Build a comprehensive prompt with the backbone info
-            backbone_name = backbone_info.get("BackboneName", "unknown plasmid")
-            promoter = backbone_info.get("Promoter", "")
-            marker = backbone_info.get("SelectionMarker", "")
-            origin = backbone_info.get("Origin", "")
-            
-            info_parts = []
-            if promoter:
-                info_parts.append(f"Promoter: {promoter}")
-            if marker:
-                info_parts.append(f"Selection marker: {marker}")
-            if origin:
-                info_parts.append(f"Origin: {origin}")
-            
-            info_str = ", ".join(info_parts) if info_parts else "limited information"
-            
-            task = f"""You are an expert in plasmid sequence retrieval and curation.
+        
+        # Build a comprehensive prompt with the backbone info
+
+        backbone_name = backbone_info.get("BackboneName", "")
+        promoter = backbone_info.get("Promoter", "")
+        marker = backbone_info.get("SelectionMarker", "")
+        origin = backbone_info.get("Origin", "")
+        
+        info_parts = []
+        if promoter:
+            info_parts.append(f"Promoter: {promoter}")
+        if marker:
+            info_parts.append(f"Selection marker: {marker}")
+        if origin:
+            info_parts.append(f"Origin: {origin}")
+        
+        info_str = ", ".join(info_parts) if info_parts else "limited information"
+        
+        task = f"""You are an expert in plasmid sequence retrieval and curation.
 
 Task:
 Given a plasmid backbone name and optional additional information, retrieve the full DNA sequence for the plasmid from authoritative public repositories.
@@ -229,8 +230,8 @@ Inputs:
 
 Lookup Procedure (follow strictly in order):
 1. Search Addgene by plasmid name.
-   - If found, record the Addgene accession / plasmid ID.
-   - Use the tool `get_plasmid_sequence` with the Addgene identifier to retrieve the full DNA sequence.
+- If found, record the Addgene accession / plasmid ID.
+- Use the tool `get_plasmid_sequence` with the Addgene identifier to retrieve the full DNA sequence.
 2. If not found in the primary Addgene search, search the Addgene Vector Database (addgene.org/vector-database).
 3. If still not found, search other standard repositories (e.g., NCBI GenBank).
 4. If an exact match is not found, identify the closest clearly related plasmid(s) and note them as suggestions.
@@ -250,47 +251,128 @@ Output Requirements:
 JSON Schema (must match exactly):
 
 {{
-  "plasmid_name": string,
-  "accession_number": string | null,
-  "full_dna_sequence": string,
-  "sequence_length": number,
-  "sequence_source": string,
-  "annotations": [
-    {
-      "feature_name": string,
-      "start": number,
-      "end": number,
-      "description": string
-    }
-  ],
-  "suggested_similar_plasmids": [
-    {
-      "plasmid_name": string,
-      "accession_number": string | null,
-      "source": string
-    }
-  ]
+"plasmid_name": string,
+"accession_number": string | null,
+"full_dna_sequence": string,
+"sequence_length": number,
+"sequence_source": string,
+"annotations": [
+{{
+    "feature_name": string,
+    "start": number,
+    "end": number,
+    "description": string
+}}
+],
+"suggested_similar_plasmids": [
+{{
+    "plasmid_name": string,
+    "accession_number": string | null,
+    "source": string
+}}
+]
 }}
 
 Field Rules:
 - plasmid_name: Use the standardized name from the source database.
-- accession_number: Repository identifier if available, otherwise null.
+- accession_number: Repository identifier if available, otherwise "" Do not make up an accession number if one is not already provided.
 - full_dna_sequence: Empty string if not found.
 - sequence_length: Length of full_dna_sequence in base pairs (0 if sequence is empty).
 - sequence_source: Name of the repository used (e.g., "Addgene", "NCBI GenBank"), or empty string if not found.
 - annotations: Include key features (e.g., origin, antibiotic resistance, promoter) if available; otherwise return an empty array.
 - suggested_similar_plasmids: Only include if no exact match is found; otherwise return an empty array."""
-            
-            # Execute task with Biomni
-            response=self.agent.go(task)
-           
-            logger.info(f"Biomni backbone extraction requested for: {backbone_name}")
-            return response
-            
-        except Exception as e:
-            logger.error(f"Biomni backbone sequence extraction failed: {e}")
+        
+        # Execute task with Biomni
+        response=self.agent.go(task)
+        
+        logger.info(f"Biomni backbone extraction requested for: {backbone_name}")
 
-            return {"error": str(e), "sequence": None, "source": "biomni"}
+        if 'solution' in response[-1]:
+            return response
+        else:   
+            logger.error(f"Biomni backbone sequence extraction failed: {backbone_info}")
+            return {"error": str(backbone_info), "sequence": None, "source": "biomni"}
+
+    
+    def lookup_gene_sequence(self, gene_name: str) -> Dict[str, Any]:
+        """
+        Use Biomni to look up a gene sequence by name.
+        
+        This method searches for a gene by name and retrieves its coding sequence
+        from authoritative databases like NCBI GenBank.
+        
+        Args:
+            gene_name: Name or identifier of the gene (e.g., "GFP", "GAPDH", "TP53")
+            
+        Returns:
+            Dictionary with sequence information or error details
+        """
+
+        breakpoint()
+        if not self.agent:
+            logger.warning("Biomni agent not available, cannot lookup gene sequence")
+            return {"error": "Biomni agent not initialized", "sequence": None}
+        
+        task = f"""You are an expert in gene sequence retrieval and molecular biology databases.
+
+Task:
+Given a gene name or identifier, retrieve the complete coding DNA sequence (CDS) for the gene from authoritative public repositories.
+
+Input:
+- gene_name: {gene_name}
+
+Lookup Procedure (follow strictly in order):
+1. Search NCBI GenBank for the gene by name/symbol.
+- Look for the most commonly used or reference sequence.
+- For human genes, prefer RefSeq entries (NM_ accessions).
+- For model organisms, use the canonical/reference sequence.
+2. If multiple isoforms exist, select the canonical or longest isoform.
+3. Retrieve the complete coding sequence (CDS) only - not the full genomic sequence.
+4. If the gene name is ambiguous, search for the most well-characterized version.
+5. Use the tool `get_gene_sequence` with the appropriate accession number.
+
+Gene Name Interpretation:
+- Common gene symbols (e.g., "GFP", "EGFP", "mCherry", "GAPDH", "TP53")
+- May include species prefixes (e.g., "human GAPDH", "mouse Actb")
+- May include variant information (e.g., "EGFP-N1", "mCherry-C1")
+
+Sequence Requirements:
+- Return the coding DNA sequence (CDS) in 5' to 3' orientation.
+- Sequence must contain only uppercase A, C, G, and T characters.
+- No whitespace, line breaks, numbers, or ambiguous bases allowed.
+- Must be the complete untruncated coding sequence.
+- If sequence cannot be verified or retrieved, return null, do not halucinate a sequence.
+
+Output Requirements:
+- Return **only valid JSON**.
+- Do not include explanations, comments, or markdown.
+- Do not hallucinate sequences or accession numbers.
+- If information is unavailable, use `null` values.
+
+Expected JSON format:
+{{
+"gene_name": "normalized gene name",
+"species": "species if specified or inferred",
+"accession": "database accession number",
+"sequence": "complete CDS sequence or null",
+"sequence_length": length_in_bp_or_null,
+"description": "brief gene description",
+"source": "database source (e.g., NCBI GenBank)",
+"isoform": "isoform information if applicable",
+"error": null_or_error_message
+}}
+"""
+
+        logger.info(f"Looking up gene sequence for: {gene_name}")
+        response = self.agent.go(task)
+        
+        if response and len(response) > 0:
+            logger.info(f"Biomni gene lookup completed for: {gene_name}")
+            return response
+        else:
+            logger.warning(f"Empty response from Biomni for gene: {gene_name}")
+            return {"error": "Empty response from Biomni", "sequence": None}
+            
 
     
     def design_construct(self, backbone_seq: str, gene_seq: str, gene_name: str) -> Dict[str, Any]:

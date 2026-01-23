@@ -58,12 +58,19 @@ class EntryStateChoice(BaseUserInputState):
     def step(cls, user_message, **kwargs):
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt)
+        
+        # Format response properly instead of showing raw dictionary
+        choice = response.get("Choice", "")
+        thoughts = response.get("Thoughts", "")
+        
+        formatted_response = f"**Selection Made**\n\n**Choice:** {choice}\n\n**Reasoning:** {thoughts}"
+        
         return Result_ProcessUserInput(
             status="success",
-            thoughts=response["Thoughts"],
-            result=response["Choice"],
-            response=str(response),
-        ), cls.NextState(response["Choice"])
+            thoughts=thoughts,
+            result=choice,
+            response=formatted_response,
+        ), cls.NextState(choice)
 
 
 PROMPT_REQUEST_META = """Please select the general gene editing scenarios to continue.
@@ -146,9 +153,16 @@ class MetaStateChoice(BaseUserInputState):
     def step(cls, user_message, **kwargs):
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt)
+        
+        # Format response properly instead of showing raw dictionary
+        choice = response.get("Choice", "")
+        thoughts = response.get("Thoughts", "")
+        
+        formatted_response = f"**Selection Made**\n\n**Choice:** {choice}\n\n**Reasoning:** {thoughts}"
+        
         return Result_ProcessUserInput(
             status="success",
-            thoughts=response["Thoughts"],
-            result=response["Choice"],
-            response=str(response),
-        ), cls.NextState(response["Choice"])
+            thoughts=thoughts,
+            result=choice,
+            response=formatted_response,
+        ), cls.NextState(choice)

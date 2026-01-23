@@ -184,9 +184,9 @@ INSTRUCTIONS
 
 1. Plasmid identification
 - If a plasmid name is mentioned, normalize it to the closest known plasmid name.
-- If not clear plasmid name is provided, try to determine a suitable plasmid based on details given in the user specifications, and put the suggestion in the filed BackboneName.
+- If not clear plasmid name is provided, try to determine a suitable plasmid based on details given in the user specifications, and put the suggestion in the filed BackboneName, and change field PlasmidSuggested to True.
 - If no suitable plasmid can be determined, leave "BackboneName" as an empty string.
-- If an accession number is mentioned or can be confidently determined, include it.
+- If an accession number is mentioned include it. Do not attempt to looke up accession numbers. Do not invent accession numbers.
   Otherwise set "BackboneAccession" = "".
 
 2. Sequence handling
@@ -202,11 +202,7 @@ INSTRUCTIONS
   - Do not make up a sequence. Do not modify any sequence you find. Strip any trailing whitespace.
 
 3. URL handling
-- If the user provides a URL, include it in "BackboneURL". Do not modify the URL.
-- If no URL is provided but a plasmid name or accession is identified, attempt to find a reputable URL for that plasmid (e.g., Addgene, NCBI).
-- If the URL does not contain an extractable sequence, leave "SequenceExtracted" empty.
-- Do not halucinate URLs. If providing a URL is not possible, leave "BackboneURL" as an empty string.
-- If providing a URL, ensure it is a valid link to a reputable source for plasmid information (e.g., Addgene, NCBI).
+- If the user provides a URL, include it in "BackboneURL". Do not modify the URL. Do not attempt to shorten it. Do not provide a URL if none is given.
 
 4. Feature inference
 - If Promoter, SelectionMarker, or Origin are explicitly mentioned, extract them.
@@ -235,6 +231,7 @@ RESPONSE FORMAT (JSON ONLY)
   "BackboneAccession": "",
   "SequenceProvided": false,
   "SequenceExtracted": "",
+  "PlasmidSuggested": false,
   "Details": "",
   "Status": "",
   "BackboneURL": "",
@@ -242,3 +239,52 @@ RESPONSE FORMAT (JSON ONLY)
   "SelectionMarker": "",
   "Origin": ""
 }}"""
+
+
+PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE = """
+Based on your request, I selected the following plasmid backbone:
+
+Backbone name: {BackboneName}
+Key features:
+- Promoter: {Promoter}
+- Selection marker: {SelectionMarker}
+- Origin of replication: {Origin}
+
+Does this backbone work for your intended use?
+
+Please reply in your own words. You can confirm, reject, or request changes.
+"""
+
+PROMPT_PROCESS_CONFIRM_BACKBONE_CHOICE = """
+You are an assistant responsible for interpreting whether a user accepts or rejects a proposed plasmid backbone.
+
+Task:
+Given the user's message, determine whether the backbone choice is confirmed.
+
+Interpretation rules:
+- Any clear affirmative response (e.g., "yes", "looks good", "that works", "sounds fine", "ok", "go ahead") → confirmed = true
+- Any clear negative response (e.g., "no", "I don't like it", "that won't work", "change it", "not what I want") → confirmed = false
+- Requests for changes, additional features, or clarifications → confirmed = false
+- Ambiguous responses that are not clearly affirmative → confirmed = false
+
+User message:
+{user_message}
+
+Output requirements:
+- Return ONLY valid JSON
+- No explanations, comments, or markdown
+- Use null if no additional details are provided
+
+JSON schema (must match exactly):
+
+{{
+  "confirmed": boolean,
+  "reason": string | null,
+  "requested_changes": string | null
+}}
+
+Field definitions:
+- confirmed: true only if the user clearly accepts the backbone as-is
+- reason: brief explanation for rejection or confirmation, if stated
+- requested_changes: summarize any requested modifications if the backbone is rejected; otherwise null
+"""
