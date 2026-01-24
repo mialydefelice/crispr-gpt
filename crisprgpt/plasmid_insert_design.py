@@ -558,13 +558,52 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
         
         Args:
             user_message: User's confirmation/modification response
-            **kwargs: Additional context from workflow
+            **kwargs: Additional context from workflow including memory
             
         Returns:
             Tuple of (Result_ProcessUserInput, next_state)
                 - Routes to CustomBackboneInput if user wants to change backbone
                 - Routes to GeneInsertChoice if user confirms backbone
         """
+        memory = kwargs.get("memory", {})
+        
+        # Extract backbone data from memory (could be from CustomBackboneInput or previous states)
+        custom_backbone_result = memory.get("CustomBackboneInput")
+        backbone_result = memory.get("StateStep1Backbone") 
+        
+        # Default values in case data is missing
+        backbone_name = "Unknown"
+        promoter = "Not specified"
+        selection_marker = "Not specified" 
+        origin = "Not specified"
+        
+        # Extract backbone details from memory
+        if custom_backbone_result and custom_backbone_result.result:
+            backbone_data = custom_backbone_result.result
+            backbone_name = backbone_data.get("BackboneName", "Custom Backbone")
+            promoter = backbone_data.get("Promoter", "Not specified")
+            selection_marker = backbone_data.get("SelectionMarker", "Not specified")
+            origin = backbone_data.get("Origin", "Not specified")
+        elif backbone_result and backbone_result.result:
+            backbone_data = backbone_result.result
+            backbone_name = backbone_data.get("BackboneName", "Selected Backbone")
+            # For standard backbones, we might not have detailed features
+            promoter = backbone_data.get("Promoter", "Standard promoter")
+            selection_marker = backbone_data.get("SelectionMarker", "Standard marker")
+            origin = backbone_data.get("Origin", "Standard origin")
+        
+        # Format the request message with actual backbone data
+        formatted_request = cls.request_message.format(
+            BackboneName=backbone_name,
+            Promoter=promoter,
+            SelectionMarker=selection_marker,
+            Origin=origin
+        )
+        
+        # Override request_message temporarily with formatted version
+        original_request_message = cls.request_message
+        cls.request_message = formatted_request
+        
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
@@ -573,6 +612,9 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
             next_state = CustomBackboneInput
         else:
             next_state = GeneInsertChoice
+        
+        # Restore original request_message
+        cls.request_message = original_request_message
         
         return (
                 Result_ProcessUserInput(
@@ -771,42 +813,37 @@ Please enter your gene name:"""
             
             # Try to look up target gene (allow 2 attempts)
             for attempt in range(2):
-                try:
-                    logger.info(f"Biomni lookup attempt {attempt + 1}/2 for target gene: {target_gene}")
-                    biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
-                    
-                    # Parse biomni output to extract sequence and gene info
-                    if isinstance(biomni_result, dict):
-                        gene_sequence = biomni_result.get("sequence")
-                        found_gene_name = biomni_result.get("gene_name")
+                logger.info(f"Biomni lookup attempt {attempt + 1}/2 for target gene: {target_gene}")
+                biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
+                
+                breakpoint()
+                # Parse biomni output to extract sequence and gene info
+                if isinstance(biomni_result, dict):
+                    gene_sequence = biomni_result.get("sequence")
+                    found_gene_name = biomni_result.get("gene_name")
+                    if gene_sequence:
+                        sequence_found = True
+                        response["GeneSequence"] = gene_sequence
+                        response["FoundGeneName"] = found_gene_name
+                        logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
+                        break
+                else:
+                    # Parse JSON from text response
+                    match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1] if isinstance(biomni_result, list) else biomni_result, re.DOTALL)
+                    if match:
+                        json_str = match.group(1)
+                        data = json.loads(json_str)
+                        gene_sequence = data.get("sequence")
+                        found_gene_name = data.get("gene_name")
                         if gene_sequence:
                             sequence_found = True
                             response["GeneSequence"] = gene_sequence
                             response["FoundGeneName"] = found_gene_name
                             logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
                             break
-                    else:
-                        # Parse JSON from text response
-                        match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1] if isinstance(biomni_result, list) else biomni_result, re.DOTALL)
-                        if match:
-                            json_str = match.group(1)
-                            data = json.loads(json_str)
-                            gene_sequence = data.get("sequence")
-                            found_gene_name = data.get("gene_name")
-                            if gene_sequence:
-                                sequence_found = True
-                                response["GeneSequence"] = gene_sequence
-                                response["FoundGeneName"] = found_gene_name
-                                logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
-                                break
-                    
-                    if not sequence_found and attempt < 1:
-                        time.sleep(1)  # Wait before retrying
-                        
-                except Exception as e:
-                    logger.warning(f"Biomni lookup attempt {attempt + 1}/2 failed for target gene: {e}")
-                    if attempt < 1:
-                        time.sleep(1)  # Wait before retrying
+                
+                if not sequence_found and attempt < 1:
+                    time.sleep(1)  # Wait before retrying
             
             # If target gene lookup failed, try suggested variants (allow 2 attempts)
             if not sequence_found and response.get("Suggested variants"):

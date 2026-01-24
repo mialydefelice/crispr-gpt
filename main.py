@@ -105,7 +105,6 @@ with gr.Blocks(title="CRISPR-GPT", theme=gr.themes.Soft(), css=custom_css) as de
     
     chatbot = gr.Chatbot(
         height=600,
-        show_copy_button=True,
         type="tuples"  # Use tuples for better compatibility
     )
     

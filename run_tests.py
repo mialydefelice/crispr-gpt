@@ -19,7 +19,7 @@ def run_tests():
     
     # Add biomni integration tests
     try:
-        from test_biomni_integration import *
+        from test_biomni_integration import TestBiomniPlasmidAgent
         biomni_tests = loader.loadTestsFromName('test_biomni_integration')
         suite.addTests(biomni_tests)
         print("✓ Loaded biomni_integration tests")
@@ -28,7 +28,7 @@ def run_tests():
     
     # Add plasmid design tests  
     try:
-        from test_plasmid_insert_design import *
+        from test_plasmid_insert_design import TestStateEntry, TestStateStep1Backbone, TestCustomBackboneChoice, TestGeneInsertChoice, TestGeneSequenceInput, TestGeneNameInput, TestConstructConfirmation
         design_tests = loader.loadTestsFromName('test_plasmid_insert_design')
         suite.addTests(design_tests)
         print("✓ Loaded plasmid_insert_design tests")

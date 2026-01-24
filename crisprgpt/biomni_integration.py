@@ -308,70 +308,103 @@ Field Rules:
             Dictionary with sequence information or error details
         """
 
-        breakpoint()
         if not self.agent:
             logger.warning("Biomni agent not available, cannot lookup gene sequence")
             return {"error": "Biomni agent not initialized", "sequence": None}
         
-        task = f"""You are an expert in gene sequence retrieval and molecular biology databases.
-
-Task:
-Given a gene name or identifier, retrieve the complete coding DNA sequence (CDS) for the gene from authoritative public repositories.
-
-Input:
-- gene_name: {gene_name}
-
-Lookup Procedure (follow strictly in order):
-1. Search NCBI GenBank for the gene by name/symbol.
-- Look for the most commonly used or reference sequence.
-- For human genes, prefer RefSeq entries (NM_ accessions).
-- For model organisms, use the canonical/reference sequence.
-2. If multiple isoforms exist, select the canonical or longest isoform.
-3. Retrieve the complete coding sequence (CDS) only - not the full genomic sequence.
-4. If the gene name is ambiguous, search for the most well-characterized version.
-5. Use the tool `get_gene_sequence` with the appropriate accession number.
-
-Gene Name Interpretation:
-- Common gene symbols (e.g., "GFP", "EGFP", "mCherry", "GAPDH", "TP53")
-- May include species prefixes (e.g., "human GAPDH", "mouse Actb")
-- May include variant information (e.g., "EGFP-N1", "mCherry-C1")
-
-Sequence Requirements:
-- Return the coding DNA sequence (CDS) in 5' to 3' orientation.
-- Sequence must contain only uppercase A, C, G, and T characters.
-- No whitespace, line breaks, numbers, or ambiguous bases allowed.
-- Must be the complete untruncated coding sequence.
-- If sequence cannot be verified or retrieved, return null, do not halucinate a sequence.
-
-Output Requirements:
-- Return **only valid JSON**.
-- Do not include explanations, comments, or markdown.
-- Do not hallucinate sequences or accession numbers.
-- If information is unavailable, use `null` values.
-
-Expected JSON format:
-{{
-"gene_name": "normalized gene name",
-"species": "species if specified or inferred",
-"accession": "database accession number",
-"sequence": "complete CDS sequence or null",
-"sequence_length": length_in_bp_or_null,
-"description": "brief gene description",
-"source": "database source (e.g., NCBI GenBank)",
-"isoform": "isoform information if applicable",
-"error": null_or_error_message
-}}
-"""
-
-        logger.info(f"Looking up gene sequence for: {gene_name}")
-        response = self.agent.go(task)
+        # Add specific guidance for common genes to improve success rate
+        common_genes = {
+            "egfp": "Enhanced Green Fluorescent Protein from Aequorea victoria, ~717bp",
+            "gfp": "Green Fluorescent Protein from Aequorea victoria, ~717bp", 
+            "mcherry": "mCherry red fluorescent protein, ~711bp",
+            "dsred": "DsRed red fluorescent protein from Discosoma, ~678bp",
+            "gapdh": "Glyceraldehyde-3-phosphate dehydrogenase, housekeeping gene",
+            "actb": "Beta-actin, cytoskeletal protein gene",
+            "tp53": "Tumor protein p53, tumor suppressor gene",
+            "myc": "MYC proto-oncogene transcription factor",
+            "luciferase": "Firefly luciferase reporter gene, ~1650bp"
+        }
         
-        if response and len(response) > 0:
-            logger.info(f"Biomni gene lookup completed for: {gene_name}")
-            return response
-        else:
-            logger.warning(f"Empty response from Biomni for gene: {gene_name}")
-            return {"error": "Empty response from Biomni", "sequence": None}
+        gene_hint = common_genes.get(gene_name.lower(), "")
+        if gene_hint:
+            task += f"\n\nNote: {gene_name} is {gene_hint}"
+
+        task = f"""Find the DNA coding sequence for gene: {gene_name}
+
+I need the complete coding DNA sequence (CDS) for this gene. Please:
+
+1. Search for {gene_name} in molecular biology databases
+2. Find the canonical/reference coding sequence 
+3. Return the DNA sequence (not protein sequence)
+4. Use only A, C, G, T characters (uppercase)
+5. Provide the complete untruncated CDS
+
+For common genes like:
+- EGFP/GFP: Enhanced Green Fluorescent Protein 
+- mCherry: Red fluorescent protein
+- GAPDH: Glyceraldehyde-3-phosphate dehydrogenase
+- TP53: Tumor protein p53
+- Actb/ACTB: Beta-actin
+
+If the gene has multiple isoforms, use the most common/canonical version.
+If species is not specified, assume the most commonly used version in research.
+
+Return as JSON:
+{{
+  "gene_name": "standardized gene name",
+  "sequence": "ATCG... (complete CDS sequence)",
+  "sequence_length": number_of_base_pairs,
+  "species": "species name",
+  "accession": "database ID if available",
+  "description": "brief description",
+  "error": null_or_error_message
+}}
+
+Gene to look up: {gene_name}{f' - {gene_hint}' if gene_hint else ''}"""
+
+        try:
+            logger.info(f"Looking up gene sequence for: {gene_name}")
+            response = self.agent.go(task)
+            
+            # Handle different response formats
+            if response:
+                # If response is a string, try to parse as JSON
+                if isinstance(response, str):
+                    try:
+                        import json
+                        response = json.loads(response)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Could not parse Biomni response as JSON: {response[:100]}...")
+                        return {"error": "Invalid JSON response from Biomni", "sequence": None}
+                
+                # If response is a dict, check for required fields
+                if isinstance(response, dict):
+                    # Ensure we have a sequence field
+                    if "sequence" in response:
+                        logger.info(f"Biomni gene lookup completed for: {gene_name}")
+                        return response
+                    else:
+                        # Try to extract sequence from other possible field names
+                        for key in ["dna_sequence", "cds", "coding_sequence", "seq"]:
+                            if key in response:
+                                response["sequence"] = response[key]
+                                logger.info(f"Found sequence in field '{key}' for: {gene_name}")
+                                return response
+                        
+                        logger.warning(f"No sequence found in Biomni response for: {gene_name}")
+                        return {"error": "No sequence in Biomni response", "sequence": None, "raw_response": response}
+                
+                # If response is not empty but not the expected format
+                logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
+                return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
+            
+            else:
+                logger.warning(f"Empty response from Biomni for gene: {gene_name}")
+                return {"error": "Empty response from Biomni", "sequence": None}
+                
+        except Exception as e:
+            logger.error(f"Biomni gene sequence lookup failed for {gene_name}: {e}")
+            return {"error": str(e), "sequence": None, "source": "biomni"}
             
 
     
