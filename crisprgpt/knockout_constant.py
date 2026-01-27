@@ -1,9 +1,9 @@
 PROMPT_REQUEST_EASY = """
-In order to complete the current task, we would need you to answer the following questions. 
+✅ In order to complete the current task, we would need you to answer the following questions.
 
-If you are not sure how to select, we recommend you use the Meta-mode where we could generate case-specific guidance based on your needs, please open a new chat and enter meta-mode (select option 1 for the initial prompt).
+💡 If you are not sure how to select, we recommend you use the Meta-mode where we could generate case-specific guidance based on your needs, please open a new chat and enter meta-mode (select option 1 for the initial prompt).
 
-1. Which Cas system are you planning to use? (We currently support SpCas9, enCas12a, SaCas9, SpRYCas9)
+1️⃣ Which Cas system are you planning to use? (We currently support SpCas9, enCas12a, SaCas9, SpRYCas9)
 """
 
 PROMPT_PROCESS_EASY = """Please act as an expert in CRISPR technology. Given the instruction and user input, think step by step and give the response. Please format your response following response format and make sure it is parsable by JSON.
@@ -62,11 +62,12 @@ Response format:
 
 
 
-PROMPT_REQUEST_ENTRY = """Now, let's start designing and planning your knockout experiment using CRISPR system, we will go through a step by step process as listed below:
-1. Selecting a CRISPR/Cas system.
-2. Selecting a delivery approach for CRISPR/Cas system. (Not Supported in Lite version)
-3. Designing guideRNA for gene knockout.
-4. Collecting appropriate experimantal protocols and validating the editing outcomes. (Not Supported in Lite version)
+PROMPT_REQUEST_ENTRY = """🚀 Now, let's start designing and planning your knockout experiment using CRISPR system, we will go through a step-by-step process as listed below:
+
+1️⃣ Selecting a CRISPR/Cas system
+2️⃣ Selecting a delivery approach for CRISPR/Cas system (⚠️ Not Supported in Lite version)
+3️⃣ Designing guideRNA for gene knockout
+4️⃣ Collecting appropriate experimantal protocols and validating the editing outcomes (⚠️ Not Supported in Lite version)
 """
 
 PROMPT_STEP1 = """
@@ -98,7 +99,7 @@ We support four types of CRISPR/Cas system for CRISPR knockout, SpCas9, enCas12a
 """
 
 PROMPT_REQUEST_STEP1_INQUIRY = """
-Please select the CRISPR-Cas system you would like to use. Or please briefly describe your need (exp: I want to edit mouse liver/I want low off-target rate/I want to do multiplexed editing) and we could recommend the CRSIPR-Cas system to you.
+❓ Please select the CRISPR-Cas system you would like to use. Or please briefly describe your need (e.g., I want to edit mouse liver / I want low off-target rate / I want to do multiplexed editing) and we could recommend the CRISPR-Cas system to you.
 """
 
 PROMPT_PROCESS_STEP1_INQUIRY = """Please act as an expert in CRISPR technology. Given the instruction and user input, think step by step and give the response. Please format your response following response format and make sure it is parsable by JSON.
@@ -157,9 +158,9 @@ Response format:
 
 
 PROMPT_REQUEST_STEP3="""
-Step 3. Designing guideRNA for gene knockout
+🧬 Step 3. Designing guideRNA for gene knockout
 
-Next, we would like to guide you through the design of guideRNA for your target gene. Designing an effective and specific single-guide RNA (sgRNA) is crucial for successful CRISPR/Cas9-mediated genome editing.There are several factors to consider in this process, including the selection of target sites that are unique to your gene of interest and minimizing potential off-target effects. 
+Next, we would like to guide you through the design of guideRNA for your target gene. Designing an effective and specific single-guide RNA (sgRNA) is crucial for successful CRISPR/Cas9-mediated genome editing. There are several factors to consider in this process, including the selection of target sites that are unique to your gene of interest and minimizing potential off-target effects.
 
 """
  

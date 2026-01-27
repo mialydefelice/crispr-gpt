@@ -1,10 +1,10 @@
 PROMPT_REQUEST_AGENT1 = """
-We can help you design your gene insert for expression plasmids.
+🧬 We can help you design your gene insert for expression plasmids.
 
-Do you already have the exact DNA sequence for the gene you want to express?
+❓ Do you already have the exact DNA sequence for the gene you want to express?
 
-If YES: Please provide the sequence (in FASTA or raw format)
-If NO: Please tell us the gene name or protein you want to express (e.g., "human EGFP", "mouse TP53"), and we can look up and extract the sequence for you.
+✅ If YES: Please provide the sequence (in FASTA or raw format)
+🔍 If NO: Please tell us the gene name or protein you want to express (e.g., "human EGFP", "mouse TP53"), and we can look up and extract the sequence for you.
 """
 
 PROMPT_PROCESS_AGENT1 = """Please act as an assistant to molecular biologists. Given the user input about gene insert design, determine whether they have the exact sequence or if we need to look it up. Please format your response as JSON.
@@ -89,13 +89,13 @@ Response format:
 
 
 PROMPT_REQUEST_PLASMID_BACKBONE_CHOICE = """
-Before we finalize your gene insert design, please confirm your choice of expression plasmid backbone.
+⚙️ Before we finalize your gene insert design, please confirm your choice of expression plasmid backbone.
 
 Which plasmid backbone would you like to use?
 
-1. I already selected a plasmid backbone and want to proceed with the gene insert design
-2. I need to review or change my plasmid backbone selection
-3. I want to view recommendations again
+1️⃣ I already selected a plasmid backbone and want to proceed with the gene insert design
+2️⃣ I need to review or change my plasmid backbone selection
+3️⃣ I want to view recommendations again
 """
 
 PROMPT_PROCESS_PLASMID_BACKBONE_CHOICE = """Please act as an expert in plasmid design. Given the user instruction and user input, determine whether the user is ready to proceed with gene insert design. Please format your response as JSON.
@@ -118,35 +118,35 @@ Response format:
 
 
 RESPONSE_STEP_ERROR = """
-Sorry, we could not find an optimized sequence for your gene in our database.
+⚠️ Sorry, we could not find an optimized sequence for your gene in our database.
 
 While we can suggest some great resources and online tools to help you design and optimize your gene insert:
 
-1. You could use pre-optimized genes from commercial vendors:
+1️⃣ You could use pre-optimized genes from commercial vendors:
    (i) GenScript: https://www.genscript.com/codon-optimization.html
    (ii) Integrated DNA Technologies (IDT): https://www.idtdna.com/pages/products/custom-dna/gene-optimization
    (iii) Synthego: https://www.synthego.com/optimize-gene
 
-2. You could use free online codon optimization tools:
+2️⃣ You could use free online codon optimization tools:
    (i) Codon Adaptation Index Calculator: https://www.genscript.com/cai-codon-usage-analyzer.html
    (ii) OPTIMIZER: https://genomes.urmc.rochester.edu/
    (iii) JCat (Java Codon Adaptation Tool): https://www.genscript.com/jcat.html
    (iv) COOL (Codon Optimizer OnLine): http://www.coolguides.de/
 
-3. You could use your preferred DNA synthesis vendor's design tools and optimization services.
+3️⃣ You could use your preferred DNA synthesis vendor's design tools and optimization services.
 
-4. You could provide us with the raw gene sequence and we can help guide optimization.
+4️⃣ You could provide us with the raw gene sequence and we can help guide optimization.
 
-*Please cite the corresponding papers if you use these tools or services.
+📄 *Please cite the corresponding papers if you use these tools or services.
 """
 
 PROMPT_REQUEST_SEQUENCE_VALIDATION = """
-Great! We have your target gene. Here's a summary of your construct:
+✅ Great! We have your target gene. Here's a summary of your construct:
 
-1. Target Gene: {gene_name}
-2. Plasmid Backbone: {backbone_name}
+1️⃣ Target Gene: {gene_name}
+2️⃣ Plasmid Backbone: {backbone_name}
 
-Would you like to proceed with this construct, or would you like to make any modifications?
+❓ Would you like to proceed with this construct, or would you like to make any modifications?
 """
 
 # To be added later
@@ -179,15 +179,15 @@ Response format:
 
 
 PROMPT_REQUEST_OUTPUT_FORMAT = """
-Excellent! Your expression construct design is complete. We are ready to provide you with the final sequence for ordering.
+🌟 Excellent! Your expression construct design is complete. We are ready to provide you with the final sequence for ordering.
 
 In what format would you like to receive your plasmid sequence for ordering?
 
-1. GenBank format (.gb) - Complete annotation with features and metadata
-2. FASTA format (.fasta) - Sequence header and nucleotide sequence
-3. Raw sequence string - Nucleotide sequence only
+1️⃣ GenBank format (.gb) - Complete annotation with features and metadata
+2️⃣ FASTA format (.fasta) - Sequence header and nucleotide sequence
+3️⃣ Raw sequence string - Nucleotide sequence only
 
-Please select your preferred format (1, 2, or 3). You can use this sequence file to submit to your DNA synthesis vendor (e.g., GenScript, IDT, Synthego, etc.).
+📄 Please select your preferred format (1, 2, or 3). You can use this sequence file to submit to your DNA synthesis vendor (e.g., GenScript, IDT, Synthego, etc.).
 """
 
 PROMPT_PROCESS_OUTPUT_FORMAT = """Please act as an expert in molecular biology. Given the user input about output format preference, confirm the selected format. Please format your response as JSON.
@@ -209,13 +209,13 @@ Response format (JSON):
 
 
 PROMPT_REQUEST_FINAL_SUMMARY = """
-Your expression construct is complete and ready for synthesis!
+🌟 Your expression construct is complete and ready for synthesis!
 
 Would you like to:
 
-1. Download/save your construct design
-2. Modify any aspect of your design and reorder
-3. Start a new plasmid design project
+1️⃣ Download/save your construct design
+2️⃣ Modify any aspect of your design and reorder
+3️⃣ Start a new plasmid design project
 """
 
 PROMPT_PROCESS_FINAL_SUMMARY = """Please act as an expert in molecular biology. Given the user instruction and input, determine the user's final action after receiving their construct design. Please format your response as JSON.

@@ -172,11 +172,11 @@ OUTPUT FORMAT (JSON ONLY)
 }}
             
             """
-            
+            breakpoint()
             # Execute task with Biomni
             output = self.agent.go(task)
             
-            logger.info(f"Biomni backbone selection completed for requirements: {requirements}")
+            logger.info(f"Biomni backbone selection completed for input: {user_input[:50]}...")
             return output
             
         except Exception as e:
@@ -203,7 +203,6 @@ OUTPUT FORMAT (JSON ONLY)
         
         
         # Build a comprehensive prompt with the backbone info
-
         backbone_name = backbone_info.get("BackboneName", "")
         promoter = backbone_info.get("Promoter", "")
         marker = backbone_info.get("SelectionMarker", "")
@@ -284,11 +283,37 @@ Field Rules:
         
         # Execute task with Biomni
         response=self.agent.go(task)
-        
         logger.info(f"Biomni backbone extraction requested for: {backbone_name}")
 
-        if 'solution' in response[-1]:
-            return response
+        # Add better response validation
+        if response:
+            if isinstance(response, list) and len(response) > 0 and 'solution' in response[-1]:
+                logger.info(f"Biomni found backbone sequence solution for: {backbone_name}")
+                return response
+            elif isinstance(response, dict):
+                logger.info(f"Biomni returned dict response for: {backbone_name}")
+                return response
+            elif isinstance(response, tuple):
+                logger.info(f"Biomni returned tuple response for: {backbone_name}, converting to dict")
+                # Try to convert tuple to a more usable format
+                if len(response) >= 2:
+                    return {
+                        "plasmid_name": backbone_name,
+                        "response_data": response[0] if response[0] else "",
+                        "solution": response[1] if len(response) > 1 else "",
+                        "source": "biomni",
+                        "raw_response": response
+                    }
+                else:
+                    return {
+                        "plasmid_name": backbone_name,
+                        "response_data": str(response),
+                        "source": "biomni",
+                        "raw_response": response
+                    }
+            else:
+                logger.warning(f"Biomni returned unexpected format for {backbone_name}: {type(response)}")
+                return {"error": "Unexpected response format", "sequence": None, "source": "biomni", "raw_response": str(response)}
         else:   
             logger.error(f"Biomni backbone sequence extraction failed: {backbone_info}")
             return {"error": str(backbone_info), "sequence": None, "source": "biomni"}
@@ -326,18 +351,25 @@ Field Rules:
         }
         
         gene_hint = common_genes.get(gene_name.lower(), "")
-        if gene_hint:
-            task += f"\n\nNote: {gene_name} is {gene_hint}"
-
+        
         task = f"""Find the DNA coding sequence for gene: {gene_name}
 
-I need the complete coding DNA sequence (CDS) for this gene. Please:
+I need the complete coding DNA sequence (CDS) for this gene. 
+Please get the DNA sequence for {gene_name}. 
+Start by trying to use an internet search to get the NCBI accession number. 
+From there can look up the plasmid from NCBI, then use annotation tools to idenify the CDS and extrct the DNA sequence. 
+If you can find an mRNA sequence, then translate this sequence to DNA using a tool. 
+If you cannot find a tool to convert to DNA, then just return the mRNA sequence directly
+
+Please:
 
 1. Search for {gene_name} in molecular biology databases
+
 2. Find the canonical/reference coding sequence 
 3. Return the DNA sequence (not protein sequence)
 4. Use only A, C, G, T characters (uppercase)
 5. Provide the complete untruncated CDS
+6. Do not make up a sequence if not found, return empty string if unavailable
 
 For common genes like:
 - EGFP/GFP: Enhanced Green Fluorescent Protein 
@@ -349,7 +381,7 @@ For common genes like:
 If the gene has multiple isoforms, use the most common/canonical version.
 If species is not specified, assume the most commonly used version in research.
 
-Return as JSON:
+Return as JSON (Only!)with no additional text:
 {{
   "gene_name": "standardized gene name",
   "sequence": "ATCG... (complete CDS sequence)",
@@ -362,50 +394,76 @@ Return as JSON:
 
 Gene to look up: {gene_name}{f' - {gene_hint}' if gene_hint else ''}"""
 
-        try:
-            logger.info(f"Looking up gene sequence for: {gene_name}")
-            response = self.agent.go(task)
-            
-            # Handle different response formats
+        logger.info(f"Looking up gene sequence for: {gene_name}")
+        response = self.agent.go(task)
+
+        for attempt in range(2):
+            # Retry if response is empty
             if response:
-                # If response is a string, try to parse as JSON
-                if isinstance(response, str):
-                    try:
-                        import json
-                        response = json.loads(response)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Could not parse Biomni response as JSON: {response[:100]}...")
-                        return {"error": "Invalid JSON response from Biomni", "sequence": None}
-                
-                # If response is a dict, check for required fields
-                if isinstance(response, dict):
-                    # Ensure we have a sequence field
-                    if "sequence" in response:
-                        logger.info(f"Biomni gene lookup completed for: {gene_name}")
-                        return response
-                    else:
-                        # Try to extract sequence from other possible field names
-                        for key in ["dna_sequence", "cds", "coding_sequence", "seq"]:
-                            if key in response:
-                                response["sequence"] = response[key]
-                                logger.info(f"Found sequence in field '{key}' for: {gene_name}")
-                                return response
-                        
-                        logger.warning(f"No sequence found in Biomni response for: {gene_name}")
-                        return {"error": "No sequence in Biomni response", "sequence": None, "raw_response": response}
-                
-                # If response is not empty but not the expected format
-                logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
-                return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
+                break
+            logger.warning(f"Biomni returned empty response for gene: {gene_name}, retrying ({attempt+1}/2)")
+            response = self.agent.go(task)
+
+        
+        # Handle different response formats
+        if response:
+            # If response is a string, try to parse as JSON
+            if isinstance(response, str):
+                breakpoint()
+                try:
+                    import json
+                    response = json.loads(response)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse Biomni response as JSON: {response[:100]}...")
+                    return {"error": "Invalid JSON response from Biomni", "sequence": None}
+            breakpoint()
+            # If response is a dict, check for required fields
+            if isinstance(response, dict):
+
+                # Ensure we have a sequence field
+                breakpoint()
+                if "sequence" in response:
+                    logger.info(f"Biomni gene lookup completed for: {gene_name}")
+                    return response
+                else:
+                    # Try to extract sequence from other possible field names
+                    for key in ["dna_sequence", "cds", "coding_sequence", "seq"]:
+                        if key in response:
+                            response["sequence"] = response[key]
+                            logger.info(f"Found sequence in field '{key}' for: {gene_name}")
+                            return response
+                    
+                    logger.warning(f"No sequence found in Biomni response for: {gene_name}")
+                    return {"error": "No sequence in Biomni response", "sequence": None, "raw_response": response}
+            if isinstance(response, tuple):
+                logger.info(f"Biomni returned tuple response for gene: {gene_name}, converting to dict")
+                # Try to convert tuple to a more usable format
+                if len(response) >= 2:
+                    breakpoint()
+                    return {
+                        "gene_name": gene_name,
+                        "sequence": response[0] if response[0] else "",
+                        "description": response[1] if len(response) > 1 else "",
+                        "source": "biomni",
+                        "raw_response": response
+                    }
+                else:
+                    breakpoint()
+                    return {
+                        "gene_name": gene_name,
+                        "sequence": str(response),
+                        "source": "biomni",
+                        "raw_response": response
+                    }
             
-            else:
-                logger.warning(f"Empty response from Biomni for gene: {gene_name}")
-                return {"error": "Empty response from Biomni", "sequence": None}
-                
-        except Exception as e:
-            logger.error(f"Biomni gene sequence lookup failed for {gene_name}: {e}")
-            return {"error": str(e), "sequence": None, "source": "biomni"}
-            
+            # If response is not empty but not the expected format
+            logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
+            return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
+        
+        else:
+            logger.warning(f"Empty response from Biomni for gene: {gene_name}")
+            return {"error": "Empty response from Biomni", "sequence": None}
+
 
     
     def design_construct(self, backbone_seq: str, gene_seq: str, gene_name: str) -> Dict[str, Any]:

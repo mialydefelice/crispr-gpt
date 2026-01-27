@@ -1,10 +1,10 @@
 PROMPT_REQUEST_AGENT1 = """
-We can help you design your gene insert for expression plasmids.
+🧬 We can help you design your gene insert for expression plasmids.
 
-Do you already have the exact DNA sequence for the gene you want to express? 
+❓ Do you already have the exact DNA sequence for the gene you want to express?
 
-If YES: Please provide the sequence (in FASTA or raw format)
-If NO: Please tell us the gene name or protein you want to express (e.g., "EGFP", "human TP53"), and we can look up and extract the sequence for you.
+✅ If YES: Please provide the sequence (in FASTA or raw format)
+🔍 If NO: Please tell us the gene name or protein you want to express (e.g., "EGFP", "human TP53"), and we can look up and extract the sequence for you.
 """
 
 PROMPT_PROCESS_AGENT1 = """Please act as an assistant to molecular biologists. Given the user input about gene insert design, determine whether they have the exact sequence or if we need to look it up. Please format your response as JSON.
@@ -27,10 +27,147 @@ Response format (JSON):
     "rationale": # explanation of your analysis.
 }}"""
 
-PROMPT_REQUEST_ENTRY_EXPRESSION = """Now, let's start designing your expression plasmid construct. We will guide you through a step by step process as listed below:
-1. Selecting an expression plasmid backbone.
-2. Designing the gene insert.
-3. Selecting output format for your construct.
+PROMPT_REQUEST_ENTRY_EXPRESSION = """🚀 Now, let's start designing your expression plasmid construct. We will guide you through a step-by-step process as listed below:
+
+1️⃣ Selecting an expression plasmid backbone
+2️⃣ Designing the gene insert
+3️⃣ Selecting output format for your construct
+"""
+
+PROMPT_REQUEST_PLAN_APPROVAL = """📋 Here's your design workflow:
+
+1️⃣ **Selecting an expression plasmid backbone** - Choose from library or provide custom
+2️⃣ **Designing the gene insert** - Specify your gene sequence or name
+3️⃣ **Selecting output format** - Choose GenBank, FASTA, or raw sequence
+
+✅ Does this workflow look good to you?
+
+Please type **yes** to proceed or **no** to modify.
+"""
+
+PROMPT_PROCESS_PLAN_APPROVAL = """Please act as a helpful assistant. Given the user input, determine if they are ready to proceed with the workflow or if they have concerns.
+
+Workflow:
+1. Selecting an expression plasmid backbone
+2. Designing the gene insert
+3. Selecting output format
+
+User Input: {user_message}
+
+Return JSON:
+{{
+  "Action": "proceed" or "concerns",
+  "Reasoning": "brief explanation"
+}}
+"""
+
+PROMPT_REQUEST_BACKBONE_SELECTION = """⚙️ **How would you like to select your plasmid backbone?**
+
+1️⃣ **Choose from our library** - Select pcDNA3.1(+) or pAG
+2️⃣ **Provide name AND sequence** - I know the plasmid name and have the full sequence
+3️⃣ **Provide just the name** - I know the plasmid name (we'll try to look it up)
+4️⃣ **Describe what you need** - Tell us the type of backbone you need (promoter, marker, etc.)
+
+➡️ Please select 1, 2, 3, or 4.
+"""
+
+PROMPT_PROCESS_BACKBONE_SELECTION = """Please act as an expert in plasmid design. Given the user input, identify which option they selected for providing their backbone.
+
+Options:
+1. Choose from library (pcDNA3.1+ or pAG)
+2. Provide name AND sequence
+3. Provide just the name
+4. Describe what they need
+
+User Input: {user_message}
+
+Return JSON:
+{{
+  "Choice": "1" or "2" or "3" or "4",
+  "Reasoning": "explanation of which option was selected"
+}}
+"""
+
+PROMPT_REQUEST_LIBRARY_SELECTION = """📚 **Select from our plasmid library:**
+
+1️⃣ **pcDNA3.1(+)**
+   - Industry-standard mammalian expression vector
+   - CMV promoter (highly active in mammalian cells)
+   - Ampicillin selection marker
+   - ~5.4 kb backbone
+   - Perfect for: Transient and stable expression in mammalian cells
+
+2️⃣ **pAG**
+   - Mammalian expression vector with selection options
+   - SV40 promoter (constitutive expression)
+   - Neomycin/Kanamycin selection
+   - ~5.6 kb backbone
+   - Perfect for: Stable cell lines and selection studies
+
+➡️ Please select 1 or 2.
+"""
+
+PROMPT_PROCESS_LIBRARY_SELECTION = """Please act as an expert. Given the user input, identify if they selected pcDNA3.1(+) or pAG from the library.
+
+User Input: {user_message}
+
+Return JSON:
+{{
+  "Selection": "pcDNA3.1(+)" or "pAG",
+  "Reasoning": "explanation"
+}}
+"""
+
+PROMPT_REQUEST_BACKBONE_NAMESEQ = """📝 **Provide your plasmid name and complete sequence**
+
+Please provide:
+1. **Plasmid name** (e.g., "pEGFP-N1")
+2. **Complete sequence** in FASTA or raw format
+
+**Example:**
+```
+pEGFP-N1
+ATGCGATCGATCG...
+```
+
+Provide both pieces of information:
+"""
+
+PROMPT_REQUEST_BACKBONE_NAMEONLY = """📝 **Provide your plasmid name**
+
+Please enter the name of the plasmid:
+- Examples: pEGFP-N1, pUC19, pcDNA3.1
+- We'll attempt to look up the sequence for you
+
+Enter plasmid name:
+"""
+
+PROMPT_REQUEST_BACKBONE_DESCRIPTION = """📝 **Describe the type of backbone you need**
+
+Please describe your ideal plasmid backbone by providing details like:
+
+✓ **Promoter type** (e.g., CMV, SV40, T7, constitutive)
+✓ **Selection marker** (e.g., Ampicillin, Kanamycin, Neomycin)
+✓ **Origin of replication** (e.g., pBR322, ColE1)
+✓ **Approximate size** (e.g., ~5-6 kb)
+✓ **Use case** (e.g., mammalian expression, bacterial, transient)
+
+**Example:**
+"I need a mammalian expression vector with CMV promoter, Ampicillin resistance, pBR322 origin, around 5-6 kb"
+
+Describe your ideal backbone:
+"""
+
+PROMPT_PROCESS_BACKBONE_DESCRIPTION = """You are an expert in plasmid design. The user has described the type of backbone they need. Analyze their description and suggest the best match from available options or confirm that a custom search is needed.
+
+User Description: {user_message}
+
+Return JSON:
+{{
+  "Analysis": "summary of what they need",
+  "SuggestedOption": "pcDNA3.1(+)" or "pAG" or "custom_search",
+  "Reasoning": "why this option matches their needs"
+}}
 """
 
 PROMPT_STEP1_EXPRESSION = """
@@ -54,13 +191,13 @@ Please select which option applies to you:
 """
 
 PROMPT_REQUEST_STEP1_INQUIRY_EXPRESSION = """
-Which expression plasmid backbone would you like to use?
-1. pcDNA3.1(+)
-2. pAG
-3. I have my own plasmid backbone
-4. I know the plasmid name/details
+⚙️ Which expression plasmid backbone would you like to use?
+1️⃣ pcDNA3.1(+)
+2️⃣ pAG
+3️⃣ I have my own plasmid backbone
+4️⃣ I know the plasmid name/details
 
-Please select 1, 2, 3, or 4.
+➡️ Please select 1, 2, 3, or 4.
 """
 
 PROMPT_PROCESS_STEP1_BACKBONE_INQUIRY_EXPRESSION = """Please act as an expert in plasmid design and mammalian cell expression systems. Given the instruction and user input, identify which plasmid backbone option the user selected.
@@ -146,29 +283,29 @@ Please select which option applies to you and provide the corresponding informat
 """
 
 PROMPT_REQUEST_STEP2_INQUIRY_EXPRESSION = """
-How would you like to provide your gene insert?
-1. I have the exact DNA sequence
-2. I have the gene name (e.g., EGFP, TP53)
-3. I have the protein amino acid sequence
+🧬 How would you like to provide your gene insert?
+1️⃣ I have the exact DNA sequence
+2️⃣ I have the gene name (e.g., EGFP, TP53)
+3️⃣ I have the protein amino acid sequence
 
-Please select 1, 2, or 3 and provide the corresponding information.
+➡️ Please select 1, 2, or 3 and provide the corresponding information.
 """
 
 PROMPT_REQUEST_CUSTOM_BACKBONE_EXPRESSION = """
-You indicated you want to use a custom plasmid backbone.
+📋 You indicated you want to use a custom plasmid backbone.
 
 Please provide one of the following:
 
-Option A: Plasmid Sequence
-- Paste the complete plasmid sequence in FASTA or GenBank format
-- Example: >plasmid_name or LOCUS plasmid_name...
+🔤 Option A: Plasmid Sequence
+  • Paste the complete plasmid sequence in FASTA or GenBank format
+  • Example: >plasmid_name or LOCUS plasmid_name...
 
-Option B: Plasmid Details
-- Plasmid name (e.g., "pEGFP-N1", "pUC19")
-- Key features: promoter type, selection marker(s), origin of replication, approximate size
-- Example: "My plasmid has CMV promoter, Ampicillin resistance, pBR322 origin, ~6 kb"
+📝 Option B: Plasmid Details
+  • Plasmid name (e.g., "pEGFP-N1", "pUC19")
+  • Key features: promoter type, selection marker(s), origin of replication, approximate size
+  • Example: "My plasmid has CMV promoter, Ampicillin resistance, pBR322 origin, ~6 kb"
 
-Please provide as much detail as possible.
+✍️ Please provide as much detail as possible.
 """
 
 PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION = """
