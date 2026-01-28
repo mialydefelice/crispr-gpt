@@ -27,14 +27,8 @@ Response format (JSON):
     "rationale": # explanation of your analysis.
 }}"""
 
-PROMPT_REQUEST_ENTRY_EXPRESSION = """🚀 Now, let's start designing your expression plasmid construct. We will guide you through a step-by-step process as listed below:
 
-1️⃣ Selecting an expression plasmid backbone
-2️⃣ Designing the gene insert
-3️⃣ Selecting output format for your construct
-"""
-
-PROMPT_REQUEST_PLAN_APPROVAL = """📋 Here's your design workflow:
+PROMPT_REQUEST_PLAN_APPROVAL = """🚀 Now, let's start designing your expression plasmid construct. We will guide you through a step-by-step process as listed below:
 
 1️⃣ **Selecting an expression plasmid backbone** - Choose from library or provide custom
 2️⃣ **Designing the gene insert** - Specify your gene sequence or name
@@ -42,7 +36,7 @@ PROMPT_REQUEST_PLAN_APPROVAL = """📋 Here's your design workflow:
 
 ✅ Does this workflow look good to you?
 
-Please type **yes** to proceed or **no** to modify.
+Please type **yes** to proceed or **no** to go back.
 """
 
 PROMPT_PROCESS_PLAN_APPROVAL = """Please act as a helpful assistant. Given the user input, determine if they are ready to proceed with the workflow or if they have concerns.
@@ -63,7 +57,7 @@ Return JSON:
 
 PROMPT_REQUEST_BACKBONE_SELECTION = """⚙️ **How would you like to select your plasmid backbone?**
 
-1️⃣ **Choose from our library** - Select pcDNA3.1(+) or pAG
+1️⃣ **Choose from our library** - Select a plasmid from a pre-selected plasmid library
 2️⃣ **Provide name AND sequence** - I know the plasmid name and have the full sequence
 3️⃣ **Provide just the name** - I know the plasmid name (we'll try to look it up)
 4️⃣ **Describe what you need** - Tell us the type of backbone you need (promoter, marker, etc.)
@@ -155,7 +149,7 @@ Please describe your ideal plasmid backbone by providing details like:
 **Example:**
 "I need a mammalian expression vector with CMV promoter, Ampicillin resistance, pBR322 origin, around 5-6 kb"
 
-Describe your ideal backbone:
+**Describe your ideal backbone:**
 """
 
 PROMPT_PROCESS_BACKBONE_DESCRIPTION = """You are an expert in plasmid design. The user has described the type of backbone they need. Analyze their description and suggest the best match from available options or confirm that a custom search is needed.
@@ -275,9 +269,6 @@ Option B: Provide the gene name
 - Specify the gene name (e.g., "EGFP", "TP53", "BRCA1")
 - We will look up the sequence for you
 
-Option C: Provide protein sequence
-- Provide the amino acid sequence
-- We will back-translate to DNA sequence
 
 Please select which option applies to you and provide the corresponding information.
 """
@@ -286,9 +277,8 @@ PROMPT_REQUEST_STEP2_INQUIRY_EXPRESSION = """
 🧬 How would you like to provide your gene insert?
 1️⃣ I have the exact DNA sequence
 2️⃣ I have the gene name (e.g., EGFP, TP53)
-3️⃣ I have the protein amino acid sequence
 
-➡️ Please select 1, 2, or 3 and provide the corresponding information.
+➡️ Please select 1, 2 and provide the corresponding information.
 """
 
 PROMPT_REQUEST_CUSTOM_BACKBONE_EXPRESSION = """
@@ -320,7 +310,7 @@ INSTRUCTIONS
 ────────────────────────
 
 1. Plasmid identification
-- If a plasmid name is mentioned, normalize it to the closest known plasmid name.
+- If a plasmid name is mentioned, normalize it to the closest known plasmid name, but do not truncate the name if it is specific. For example, pcDNA3.1(+) is a different plasmid than pcDNA3.1. Normalization in this context is to normalize pC_dNA_3_1_+ to pcDNA3.1(+)
 - If not clear plasmid name is provided, try to determine a suitable plasmid based on details given in the user specifications, and put the suggestion in the filed BackboneName, and change field PlasmidSuggested to True.
 - If no suitable plasmid can be determined, leave "BackboneName" as an empty string.
 - If an accession number is mentioned include it. Do not attempt to looke up accession numbers. Do not invent accession numbers.

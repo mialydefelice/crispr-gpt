@@ -52,7 +52,7 @@ class StateEntry(BaseState):
         Returns:
             Tuple of (Result_ProcessUserInput, next_state)
         """
-        return Result_ProcessUserInput(response=PROMPT_REQUEST_ENTRY_EXPRESSION), PlanApproval
+        return Result_ProcessUserInput(response=""), PlanApproval
 
 
 class PlanApproval(BaseUserInputState):
@@ -84,7 +84,7 @@ class PlanApproval(BaseUserInputState):
         if "proceed" in action:
             next_state = BackboneSelectionChoice
         else:
-            next_state = PlanApproval  # Ask again if they have concerns
+            next_state = StateEntry  # IF they dont like the plan, go back
         
         return (
             Result_ProcessUserInput(
@@ -374,7 +374,7 @@ class CustomBackboneDescription(BaseUserInputState):
     User describes what type of backbone they need (promoter, marker, origin, etc.)
     and we either suggest a library option or prepare for custom search.
     """
-    prompt_process = PROMPT_PROCESS_BACKBONE_DESCRIPTION
+    prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
     request_message = PROMPT_REQUEST_BACKBONE_DESCRIPTION
 
     @classmethod
@@ -387,67 +387,99 @@ class CustomBackboneDescription(BaseUserInputState):
             
         Returns:
             Tuple of (Result_ProcessUserInput, next_state)
-                - Routes to BackboneLibrarySelection if pcDNA3.1(+) or pAG match
+                - Routes to BackboneLibrarySelection if pcDNA3.1(+) or other library sequence match
                 - Routes to CustomBackboneNameOnly if custom search needed
                 - Routes back if description unclear
         """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        backbone_name = response.get('BackboneName', "").strip()
+
+        #If the suggested plasmid matches a library name then go ahead and pull the sequence.
         
-        suggested_option = response.get("SuggestedOption", "custom_search").lower()
-        
-        if "pcdna" in suggested_option or "pcdna3.1" in suggested_option:
-            # User's needs match pcDNA3.1(+)
-            return (
-                Result_ProcessUserInput(
-                    status="success",
-                    result={
-                        "BackboneName": "pcDNA3.1(+)",
-                        "SelectionMethod": "library_from_description",
-                        "UserDescription": user_message,
-                        "Analysis": response.get("Analysis", ""),
-                    },
-                    response="",
-                ),
-                GeneInsertChoice,
-            )
-        elif "pag" in suggested_option:
-            # User's needs match pAG
-            return (
-                Result_ProcessUserInput(
-                    status="success",
-                    result={
-                        "BackboneName": "pAG",
-                        "SelectionMethod": "library_from_description",
-                        "UserDescription": user_message,
-                        "Analysis": response.get("Analysis", ""),
-                    },
-                    response="",
-                ),
-                GeneInsertChoice,
-            )
-        else:
-            # Custom search needed - ask for plasmid name
-            followup_message = f"""**Analysis of your requirements:**
-
-{response.get('Analysis', 'Processing your request...')}
-
-**We need the plasmid name or full sequence to proceed.**
-
-Would you like to:
-1. **Provide the plasmid name** (if you know it)
-2. **Provide the name AND sequence** (if you have it)
-
-Please choose or provide the plasmid information:"""
+        # Load the Library
+        plasmid_reader = PlasmidLibraryReader()
+        plasmid_reader.load_library()
+        sequence_extracted = ""
+        backbone_details = plasmid_reader.get_plasmid_sequence_details(backbone_name)
+        if not backbone_details.empty:
+            sequence_extracted = backbone_details['Sequence']
+            response["SequenceExtracted"] = sequence_extracted
+            if len(sequence_extracted) > 200:
+                logger.info(f"Was able to find {backbone_name} in the plasmid library, taking the sequence from the local repo.")
             
-            return (
-                Result_ProcessUserInput(
-                    status="success",
-                    result=response,
-                    response=followup_message,
-                ),
-                CustomBackboneNameOnly,
-            )
+            if pd.isna(response["SequenceExtracted"]) or response["SequenceExtracted"] == '':
+                logger.warning(f"Backbone {backbone_name} found but has no sequence in library")
+                response["SequenceExtracted"] = None
+            
+
+        if not sequence_extracted:
+            biomni_agent = get_biomni_agent()
+            if biomni_agent is not None:
+                logger.info(f"Attempting Biomni lookup for plasmid: {backbone_name}")
+                
+                found_backbone_sequence = False
+                for attempt in range(3):
+                    biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
+                    biomni_response = biomni_result["response_data"]
+
+                    if isinstance(biomni_result, dict) and ("error" in biomni_result.keys()):
+                        logger.warning(f"Biomni lookup attempt {attempt + 1} failed: {biomni_result.get('error')}")
+                        if attempt < 2:
+                            time.sleep(1)
+                            continue
+                    else:
+                        # Parse successful result
+                        if isinstance(biomni_result, dict):
+                            match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_response[-1], re.DOTALL)
+                            if match:
+                                json_str = match.group(1)
+                                data = json.loads(json_str)
+                                sequence_extracted = data.get("full_dna_sequence", "")
+                                
+                        if sequence_extracted and len(sequence_extracted) > 200:
+                            found_backbone_sequence = True
+                            response["SequenceExtracted"] = sequence_extracted
+                            response["SequenceLength"] = len(sequence_extracted)
+                            break
+                                
+                    
+                if not found_backbone_sequence:
+                    breakpoint()
+                    error_message = f"""**⚠️ Plasmid Not Found**
+
+    Could not find sequence information for plasmid: **{backbone_name}**
+
+    **Please try:**
+    1. Check the plasmid name spelling
+    2. Provide alternative names or identifiers  
+    3. Go back and provide the sequence directly (option 1)
+
+    Please try again with a different plasmid name or identifier:"""
+                    
+                    return (
+                        Result_ProcessUserInput(
+                            status="error",
+                            response=error_message, 
+                        ),
+                        CustomBackboneDetailsInput,
+                    )
+
+        # Success - route based on whether Biomni suggested the plasmid
+        if response.get("PlasmidSuggested"):
+            next_state = ConfirmPlasmidBackboneChoice
+        else:
+            next_state = GeneInsertChoice
+            
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response="",
+            ),
+            next_state,
+        )
 
 
 class StateStep1Backbone(BaseUserInputState):
@@ -549,10 +581,9 @@ class CustomBackboneDetailsInput(BaseUserInputState):
 - Promoter type (e.g., CMV, SV40, T7)
 - Selection marker (e.g., Ampicillin, Neomycin, Kanamycin)
 - Origin of replication (e.g., pBR322, ColE1)
-- Approximate size (e.g., ~5.4 kb)
 
 **Example:**
-"pEGFP-N1 with CMV promoter, Kanamycin resistance, pBR322 origin, approximately 4.7 kb"
+"pEGFP-N1 with CMV promoter, Kanamycin resistance, pBR322 origin"
 or
 "Select a backbone for transient constitutive expression in HEK293 Cells"
 
@@ -596,6 +627,7 @@ Please try again with the plasmid name or a better detailed description:"""
             
             found_backbone_sequence = False
             for attempt in range(3):
+                sequence_extracted = ""
                 biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
                 biomni_response = biomni_result["response_data"]
 
@@ -606,7 +638,7 @@ Please try again with the plasmid name or a better detailed description:"""
                         continue
                 else:
                     # Parse successful result
-                    if isinstance(biomni_result, dict):
+                    if isinstance(biomni_response[-1], str) or isinstance(biomni_result, dict):
                         match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_response[-1], re.DOTALL)
                         if match:
                             json_str = match.group(1)
@@ -621,7 +653,6 @@ Please try again with the plasmid name or a better detailed description:"""
                             
                 
             if not found_backbone_sequence:
-                breakpoint()
                 error_message = f"""**⚠️ Plasmid Not Found**
 
 Could not find sequence information for plasmid: **{backbone_name}**
@@ -630,8 +661,8 @@ Could not find sequence information for plasmid: **{backbone_name}**
 1. Check the plasmid name spelling
 2. Provide alternative names or identifiers  
 3. Go back and provide the sequence directly (option 1)
-
-Please try again with a different plasmid name or identifier:"""
+4. If you are confident your prompt should work please providing the description again (sometimes it will work if given more opportunities)
+"""
                 
                 return (
                     Result_ProcessUserInput(
@@ -676,7 +707,7 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
         Args:
             user_message: User's confirmation/modification response
             **kwargs: Additional context from workflow including memory
-            
+        
         Returns:
             Tuple of (Result_ProcessUserInput, next_state)
                 - Routes to BackboneSelectionChoice if user wants to change backbone
@@ -711,19 +742,16 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
             promoter = backbone_data.get("Promoter", "Standard promoter")
             selection_marker = backbone_data.get("SelectionMarker", "Standard marker")
             origin = backbone_data.get("Origin", "Standard origin")
-        
+
         # Format the request message with actual backbone data
-        formatted_request = cls.request_message.format(
+        formatted_request = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE.format(
             BackboneName=backbone_name,
             Promoter=promoter,
             SelectionMarker=selection_marker,
             Origin=origin
         )
-        
-        # Override request_message temporarily with formatted version
-        original_request_message = cls.request_message
-        cls.request_message = formatted_request
-        
+
+        # Use formatted_request as the message to the user (e.g., in UI or as part of LLM response)
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
@@ -732,18 +760,15 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
             next_state = BackboneSelectionChoice
         else:
             next_state = GeneInsertChoice
-        
-        # Restore original request_message
-        cls.request_message = original_request_message
-        
+
         return (
-                Result_ProcessUserInput(
-                    status="success",
-                    result=response,
-                    response="",
-                ),
-                next_state,
-            )
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response=formatted_request,  # Show the filled-out confirmation message to the user
+            ),
+            next_state,
+        )
 
 
 class GeneInsertChoice(BaseUserInputState):
@@ -933,10 +958,8 @@ class GeneNameInput(BaseUserInputState):
             for attempt in range(2):
                 logger.info(f"Biomni lookup attempt {attempt + 1}/2 for target gene: {target_gene}")
                 biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
-                breakpoint()
                 # Parse biomni output to extract sequence and gene info
                 if isinstance(biomni_result, dict):
-                    breakpoint()
                     gene_sequence = biomni_result.get("sequence")
                     found_gene_name = biomni_result.get("gene_name")
                     if gene_sequence:
@@ -962,32 +985,6 @@ class GeneNameInput(BaseUserInputState):
                 
                 if not sequence_found and attempt < 1:
                     time.sleep(1)  # Wait before retrying
-            
-            # If target gene lookup failed, try suggested variants (allow 2 attempts)
-            # Check for gene name mismatch after successful sequence lookup
-            if sequence_found and response.get("FoundGeneName"):
-                found_gene_name = response.get("FoundGeneName", "").lower().strip()
-                target_gene_name = response.get("Target gene", "").lower().strip()
-                
-                # Simple semantic match check - you can make this more sophisticated
-                if found_gene_name and target_gene_name and found_gene_name != target_gene_name:
-                    # Check if they're not just minor variations (e.g., "gfp" vs "egfp")
-                    if not (found_gene_name in target_gene_name or target_gene_name in found_gene_name):
-                        logger.info(f"Gene name mismatch detected: requested '{target_gene_name}' but found '{found_gene_name}'")
-                        # Route to confirmation state
-                        text_response = f"**⚠️ Gene Name Mismatch Detected**\n\n"
-                        text_response += f"**You requested:** {response.get('Target gene', 'Unknown')}\n"
-                        text_response += f"**Found sequence for:** {response.get('FoundGeneName', 'Unknown')}\n\n"
-                        text_response += f"The sequence we found appears to be for a different gene than what you requested. Would you like to proceed with this sequence, or would you prefer to try a different gene name?"
-                        
-                        return (
-                            Result_ProcessUserInput(
-                                status="success",
-                                result=response,
-                                response=text_response,
-                            ),
-                            ConfirmGeneIdentityMismatch,
-                        )
             
             if not sequence_found:
                 logger.warning("Biomni could not find gene sequence for target gene or any suggested variants")
@@ -1375,7 +1372,7 @@ class ConstructConfirmation(BaseUserInputState):
                 - Routes to OutputFormatSelection if user confirms construct
         """
         memory = kwargs.get("memory", {})
-        
+
         # Extract data from previous states
         gene_result = memory.get("GeneNameInput") or memory.get("GeneSequenceInput")
         backbone_result = memory.get("StateStep1Backbone")
@@ -1531,7 +1528,7 @@ class OutputFormatSelection(BaseUserInputState):
         custom_backbone_result = memory.get("CustomBackboneInput") or memory.get("CustomBackboneDetailsInput")
 
         # DO NOT PROVIDE DEFAULTS, Go back to the user if missing.
-        
+        breakpoint()
         # Extract result data from Result_ProcessUserInput objects
         gene_data = gene_result.result if gene_result else {}
         if custom_backbone_result.result:
@@ -1582,7 +1579,7 @@ class OutputFormatSelection(BaseUserInputState):
         # Fetch backbone sequence from plasmid library
         plasmid_reader = PlasmidLibraryReader()
         plasmid_reader.load_library()
-        breakpoint()
+
         # Try to find the plasmid in the library by name, or use custom sequence
         backbone_seq = None
         if custom_backbone_seq:

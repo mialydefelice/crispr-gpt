@@ -408,15 +408,21 @@ Gene to look up: {gene_name}{f' - {gene_hint}' if gene_hint else ''}"""
         # Handle different response formats
         if response:
             # If response is a string, try to parse as JSON
-            if isinstance(response, str):
-                breakpoint()
-                try:
-                    import json
-                    response = json.loads(response)
-                except json.JSONDecodeError:
-                    logger.warning(f"Could not parse Biomni response as JSON: {response[:100]}...")
-                    return {"error": "Invalid JSON response from Biomni", "sequence": None}
-            breakpoint()
+            if isinstance(response[-1], str):
+                match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", response[-1], re.DOTALL)
+                if match:
+                    json_str = match.group(1)
+                    data = json.loads(json_str)
+                    gene_sequence = data.get("sequence", "")
+                    return data
+                else:
+                    logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
+                    return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
+            else:
+                # If response is not empty but not the expected format
+                logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
+                return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
+            """
             # If response is a dict, check for required fields
             if isinstance(response, dict):
 
@@ -438,14 +444,20 @@ Gene to look up: {gene_name}{f' - {gene_hint}' if gene_hint else ''}"""
             if isinstance(response, tuple):
                 logger.info(f"Biomni returned tuple response for gene: {gene_name}, converting to dict")
                 # Try to convert tuple to a more usable format
-                if len(response) >= 2:
-                    breakpoint()
+                if len(response) >= 2 and isinstance(response[1], str):
+                    match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", response[-1], re.DOTALL)
+                    if match:
+                        json_str = match.group(1)
+                        data = json.loads(json_str)
+                        gene_sequence = data.get("sequence", "")
+                        description = data.get("description", "")
+
                     return {
                         "gene_name": gene_name,
-                        "sequence": response[0] if response[0] else "",
-                        "description": response[1] if len(response) > 1 else "",
+                        "sequence": gene_sequence,
+                        "description": description,
                         "source": "biomni",
-                        "raw_response": response
+                        "raw_response": response[-1]
                     }
                 else:
                     breakpoint()
@@ -455,11 +467,7 @@ Gene to look up: {gene_name}{f' - {gene_hint}' if gene_hint else ''}"""
                         "source": "biomni",
                         "raw_response": response
                     }
-            
-            # If response is not empty but not the expected format
-            logger.warning(f"Unexpected response format from Biomni for {gene_name}: {type(response)}")
-            return {"error": "Unexpected response format", "sequence": None, "raw_response": str(response)}
-        
+            """
         else:
             logger.warning(f"Empty response from Biomni for gene: {gene_name}")
             return {"error": "Empty response from Biomni", "sequence": None}

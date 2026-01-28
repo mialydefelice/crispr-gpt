@@ -150,7 +150,7 @@ PROMPT_REQUEST_SEQUENCE_VALIDATION = """
 """
 
 # To be added later
-future_additions: """
+future_additions= """
 3. Predicted Protein Expression Level: {predicted_expression_level}
 4. Important Featuress to Check:
     - Start Codont (ATG) present: {start_codon_present}
