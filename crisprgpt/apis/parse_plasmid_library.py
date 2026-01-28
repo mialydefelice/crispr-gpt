@@ -83,14 +83,19 @@ class PlasmidLibraryReader:
         
         plasmid_name_lower = plasmid_name.lower()
         
-        plasmid_details = (
-            self.df.loc[
-                self.df["Plasmid"].str.lower() == plasmid_name_lower
-            ]
-            .iloc[0]
-        )
+        try:
+            plasmid_details = (
+                self.df.loc[
+                    self.df["Plasmid"].str.lower() == plasmid_name_lower
+                ]
+                .iloc[0]
+            )
+            return plasmid_details
+        except:
+            logger.info(f"Plasmid({plasmid_name}) not found in library")
+            return pd.DataFrame()
 
-        return plasmid_details
+        
 
 
 def extract_info(user_request, prompt_process, df):

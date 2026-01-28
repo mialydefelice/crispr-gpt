@@ -1,10 +1,10 @@
 PROMPT_REQUEST_AGENT1 = """
-We could help you design the guideRNA sequence based on CRISPick (https://portals.broadinstitute.org/gppx/crispick/public) (Kim et al.,Nat Biotechnol.,2018; DeWeirdt et al.,Nat Biotechnol.,2021; Doench et al.,Nat Biotechnol.,2016; Sanson et al.,Nat Commun, 2018).
+🧬 We could help you design the guideRNA sequence based on CRISPick (https://portals.broadinstitute.org/gppx/crispick/public) (Kim et al.,Nat Biotechnol.,2018; DeWeirdt et al.,Nat Biotechnol.,2021; Doench et al.,Nat Biotechnol.,2016; Sanson et al.,Nat Commun, 2018).
 
-Could you please describe what sgRNAs do you need? (For example, you can type in: I hope to design 2 sgRNAs targeting human EGFR; Please give me 1 sgRNA target Exon 1 of mouse Tgfbr1.)
+❓ Could you please describe what sgRNAs do you need? (For example, you can type in: I hope to design 2 sgRNAs targeting human EGFR; Please give me 1 sgRNA target Exon 1 of mouse Tgfbr1.)
 
-*Please include the target and species information.
-*Please cite the corresponding papers if you decide to use the designed sgRNA.
+📋 *Please include the target and species information.
+📄 *Please cite the corresponding papers if you decide to use the designed sgRNA.
 """
 
 PROMPT_PROCESS_AGENT1 = """Please act as an assistant to biologists. Given the user input about sgRNA design, extract the target gene and species, determine whether user has specified target exon. Then, suggest potential exon or exons to target and provide rationales. Please format your response following response format and make sure it is parsable by JSON.
@@ -24,9 +24,9 @@ Response format:
 }}"""
 
 PROMPT_REQUEST_QUESTION = """
-Based on the information you provided, it may be beneficial to design sgRNAs targeting specific exons within the genes.
+🔍 Based on the information you provided, it may be beneficial to design sgRNAs targeting specific exons within the genes.
 
-Would you like to continue sgRNA design with the exon/exons we suggested?
+❓ Would you like to continue sgRNA design with the exon/exons we suggested?
 """
 
 PROMPT_PROCESS_QUESTION = """Please act as an expert in CRISPR technology. Given the user instruction and user input, think step by step and generate a choice for the user. Please format your response and make sure it is parsable by JSON.
@@ -113,25 +113,25 @@ Response format:
 
 
 RESPONSE_STEP_ERROR = """
-Sorry, we could not find a sgRNA for you in our database. 
+⚠️ Sorry, we could not find a sgRNA for you in our database.
 
 While we could suggest some great resources and/or some online tools to help you design the sgRNA for your application:
 
-1. You could use sgRNAs that have been validated. Here is Addgene's validated sgRNA database:
+1️⃣ You could use sgRNAs that have been validated. Here is Addgene's validated sgRNA database:
 https://www.addgene.org/crispr/reference/grna-sequence/
 
-2. You could use some online tools. Incluidng:
-(i) CRISPRpick: https://portals.broadinstitute.org/gppx/crispick/public (Kim et al.,Nat Biotechnol.,2018;DeWeirdt et al.,Nat Biotechnol.,2021;Doench et al.,Nat Biotechnol.,2016;Sanson et al.,Nat Commun, 2018)
-(ii) CRISPOR: http://crispor.tefor.net/ (Concoret et al.,Nucleic Acids Res.,2018)
-(iii) Chopchop: https://chopchop.cbu.uib.no/ (Labun et al.,Nucleic Acids Res.,2019)
+2️⃣ You could use some online tools. Including:
+   (i) CRISPRpick: https://portals.broadinstitute.org/gppx/crispick/public (Kim et al.,Nat Biotechnol.,2018;DeWeirdt et al.,Nat Biotechnol.,2021;Doench et al.,Nat Biotechnol.,2016;Sanson et al.,Nat Commun, 2018)
+   (ii) CRISPOR: http://crispor.tefor.net/ (Concoret et al.,Nucleic Acids Res.,2018)
+   (iii) Chopchop: https://chopchop.cbu.uib.no/ (Labun et al.,Nucleic Acids Res.,2019)
 
-3. You could use the tools provided by your preferred DNA synthesize vendor.
+3️⃣ You could use the tools provided by your preferred DNA synthesize vendor.
 
-*Please cite the corresponding papers if you decide to use the sgRNA.
+📄 *Please cite the corresponding papers if you decide to use the sgRNA.
 """ 
 
 PROMPT_REQUEST_OFFTARGET_QUESTION = """
-Would you like to use CRISPRitz to predict sgRNA off-target effects?
+⚠️ Would you like to use CRISPRitz to predict sgRNA off-target effects?
 """
 
 PROMPT_PROCESS_OFFTARGET_QUESTION = """

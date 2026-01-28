@@ -74,9 +74,24 @@ We are releasing a **light version** of CRISPR-GPT on GitHub that includes:
 ### Installation (Light Version)
 
 ```bash
+# Download Conda
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+
+#Install Conda
+
 # Clone the repository
 git clone https://github.com/cong-lab/crispr-gpt-pub.git
 cd crispr-gpt-pub
+
+- Accept the license
+- Install to default (~/miniconda3)
+- Say yes to `conda init`
+
+# Reload Shell
+source ~/.bashrc
+
+# Verify Install
+conda --version
 
 # Create conda environment
 conda create -n crispr-gpt-new python=3.11 -y
@@ -86,7 +101,8 @@ conda activate crispr-gpt-new
 pip install -r requirements.txt
 
 # Set up OpenAI API key
-echo "OPENAI_KEY=your_openai_api_key_here" > .env
+echo "OPENAI_KEY=your_openai_api_key_here" > .env # This is for CRISPRGPT
+echo "OPENAI_API_KEY=your_openai_api_key_here" > .env # This is for Biomni
 
 # Run the application
 python main.py

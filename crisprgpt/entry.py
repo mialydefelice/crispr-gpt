@@ -3,11 +3,10 @@ from llm import OpenAIChat
 from . import base_editing, knockout, prime_editing, act_rep, plasmid_insert_design
 from .automation import StateAutomate
 
-PROMPT_REQUEST_ENTRY = """Welcome to CRISPR-GPT. I can help with the following tasks. Please select 
-one to continue.
+PROMPT_REQUEST_ENTRY = """👋 Welcome to CRISPR-GPT! I can help with the following tasks. Please select one to continue.
 
-1. Meta-Mode (Step-by-Step Guidance on Pre-defined Meta-Task)
-2. Auto-Mode (Customized Guidance on Free-style User Request)
+1️⃣ Meta-Mode (Step-by-Step Guidance on Pre-defined Meta-Task)
+2️⃣ Auto-Mode (Customized Guidance on Free-style User Request)
 """
 
 PROMPT_PROCESS_ENTRY = """
@@ -58,20 +57,24 @@ class EntryStateChoice(BaseUserInputState):
     def step(cls, user_message, **kwargs):
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt)
+        
+        # Format response properly instead of showing raw dictionary
+        choice = response.get("Choice", "")
+        thoughts = response.get("Thoughts", "")
+        
         return Result_ProcessUserInput(
             status="success",
-            thoughts=response["Thoughts"],
-            result=response["Choice"],
-            response=str(response),
-        ), cls.NextState(response["Choice"])
+            thoughts=thoughts,
+            result=choice,
+            response="",
+        ), cls.NextState(choice)
+PROMPT_REQUEST_META = """🧬 Please select the general gene editing scenarios to continue.
 
-
-PROMPT_REQUEST_META = """Please select the general gene editing scenarios to continue.
-1. Generating a Knockout Using CRISPR.
-2. CRISPR Base Editing Without Double-Strand Breaks. (Not Supported in Lite version)
-3. Generating Small Insertion/deletion/base editing through Prime Editing. (Not Supported in Lite version)
-4. Activation or Repression of Target Genes Using CRISPR. (Not Supported in Lite version)
-5. Designing an Expression Plasmid.
+1️⃣ Generating a Knockout Using CRISPR
+2️⃣ CRISPR Base Editing Without Double-Strand Breaks (⚠️ Not Supported in Lite version)
+3️⃣ Generating Small Insertion/Deletion/Base Editing through Prime Editing (⚠️ Not Supported in Lite version)
+4️⃣ Activation or Repression of Target Genes Using CRISPR (⚠️ Not Supported in Lite version)
+5️⃣ Designing an Expression Plasmid
 """
 
 PROMPT_PROCESS_META = """
@@ -146,9 +149,16 @@ class MetaStateChoice(BaseUserInputState):
     def step(cls, user_message, **kwargs):
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt)
+        
+        # Format response properly instead of showing raw dictionary
+        choice = response.get("Choice", "")
+        thoughts = response.get("Thoughts", "")
+        
+        formatted_response = f"**Selection Made**\n\n**Choice:** {choice}\n\n**Reasoning:** {thoughts}"
+        
         return Result_ProcessUserInput(
             status="success",
-            thoughts=response["Thoughts"],
-            result=response["Choice"],
-            response=str(response),
-        ), cls.NextState(response["Choice"])
+            thoughts=thoughts,
+            result=choice,
+            response=formatted_response,
+        ), cls.NextState(choice)

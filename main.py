@@ -25,20 +25,20 @@ def initialize_session():
     
     try:
         init_messages = concurrent_gradio_state_machine.loop(None, current_state)
-        return [(None, msg) for msg in init_messages]
+        return [{"role": "assistant", "content": msg} for msg in init_messages]
     except Exception as e:
         logger.error(f"Initialization error: {e}")
-        return [(None, "CRISPR-GPT ready! How can I assist you with molecular biology?")]
+        return [{"role": "assistant", "content": "CRISPR-GPT ready! How can I assist you with molecular biology?"}]
 
 def save_chat(history, session_id):
     """Save chat history to file"""
     try:
         to_save = ""
-        for user_msg, bot_msg in history:
-            if user_msg:
-                to_save += f"### User: \n{user_msg}\n\n"
-            if bot_msg:
-                to_save += f"### CRISPR-GPT: \n{bot_msg}\n\n"
+        for msg in history:
+            if msg["role"] == "user":
+                to_save += f"### User: \n{msg['content']}\n\n"
+            elif msg["role"] == "assistant":
+                to_save += f"### CRISPR-GPT: \n{msg['content']}\n\n"
         
         file_path = f"log/{session_id}.txt"
         with open(file_path, 'w', encoding='utf-8') as f:
@@ -56,13 +56,15 @@ def chat_respond(message, history):
         if not message.strip():
             return history, ""
         
+        # Add user message to history
+        history.append({"role": "user", "content": message})
+        
         # Get bot response
         bot_messages = concurrent_gradio_state_machine.loop(message, current_state)
         
-        # Add to history
+        # Add bot messages to history
         for bot_msg in bot_messages:
-            history.append((message, str(bot_msg)))
-            message = None  # Only show user message once
+            history.append({"role": "assistant", "content": str(bot_msg)})
         
         # Save chat
         save_chat(history, current_session_id)
@@ -71,7 +73,7 @@ def chat_respond(message, history):
         
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        history.append((message, f"Error: {str(e)}"))
+        history.append({"role": "assistant", "content": f"Error: {str(e)}"})
         return history, ""
 
 def reset_chat():
@@ -105,8 +107,7 @@ with gr.Blocks(title="CRISPR-GPT", theme=gr.themes.Soft(), css=custom_css) as de
     
     chatbot = gr.Chatbot(
         height=600,
-        show_copy_button=True,
-        type="tuples"  # Use tuples for better compatibility
+        type="messages"  # Use OpenAI-style messages format
     )
     
     with gr.Row():

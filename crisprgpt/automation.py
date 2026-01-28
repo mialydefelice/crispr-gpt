@@ -75,7 +75,7 @@ Response format:
 
 class StateAutomate(BaseUserInputState):
     prompt_process = PROMPT_PROCESS_AUTOMATE
-    request_message = "Please directly type in your need."
+    request_message = "💬 Please directly type in your need."
 
     @classmethod
     def step(cls, user_message, **kwargs):

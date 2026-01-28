@@ -9,137 +9,679 @@ from .plasmid_mcs_handler import MCSHandler
 from .biomni_integration import get_biomni_agent
 from llm import OpenAIChat
 import time
+import json
 from util import get_logger
 
 logger = get_logger(__name__)
 
 
+def format_json_response(data, title=None):
+    """Format a dictionary/JSON response as a Markdown code block for better Gradio rendering.
+    
+    Args:
+        data: Dictionary to format
+        title: Optional title to display before the code block
+        
+    Returns:
+        Formatted string with title and code block
+    """
+    json_str = json.dumps(data, indent=2)
+    formatted = ""
+    if title:
+        formatted += f"**{title}**\n\n"
+    formatted += f"```json\n{json_str}\n```\n\n"
+    return formatted
+
+
 class StateEntry(BaseState):
+    """Entry point state for the expression plasmid design workflow.
+    
+    Displays initial greeting and routes to plan approval. This state
+    does not request user input, only provides the entry prompt.
+    """
     request_user_input = False
 
     @classmethod
     def step(cls, user_message, **kwargs):
-        return Result_ProcessUserInput(response=PROMPT_REQUEST_ENTRY_EXPRESSION), StateStep1Backbone
+        """Display entry message and transition to plan approval.
+        
+        Args:
+            user_message: Not used at entry point
+            **kwargs: Additional context (not used)
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+        """
+        return Result_ProcessUserInput(response=""), PlanApproval
 
 
-class StateStep1Backbone(BaseUserInputState):
-    prompt_process = PROMPT_PROCESS_STEP1_BACKBONE_INQUIRY_EXPRESSION
-    request_message = PROMPT_REQUEST_STEP1_INQUIRY_EXPRESSION
+class PlanApproval(BaseUserInputState):
+    """State for user to approve the overall workflow plan.
+    
+    Shows the three-step process and asks user to confirm before proceeding.
+    """
+    prompt_process = PROMPT_PROCESS_PLAN_APPROVAL
+    request_message = PROMPT_REQUEST_PLAN_APPROVAL
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process user's approval of the workflow plan.
+        
+        Args:
+            user_message: User's yes/no response
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to BackboneSelectionChoice if approved
+                - Routes back to PlanApproval if user has concerns
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
-        text_response = str(response)
-        backbone_name = response.get("BackboneName", "").lower()
         
-        # Check if user selected a custom backbone option
-        if "custom" in backbone_name or response.get("Status", "").lower() == "needs_details":
-            # Route to custom backbone state
-            next_state = CustomBackboneInput
+        action = response.get("Action", "").lower()
+        
+        if "proceed" in action:
+            next_state = BackboneSelectionChoice
         else:
-            # Standard backbone selected (pcDNA3.1(+) or pAG)
-            next_state = GeneInsertSelection
+            next_state = StateEntry  # IF they dont like the plan, go back
         
-        text_response += f" Final Result {backbone_name}"
         return (
             Result_ProcessUserInput(
                 status="success",
-                thoughts=response.get("Thoughts", ""),
                 result=response,
-                response=text_response,
+                response="",
             ),
             next_state,
         )
 
 
-class CustomBackboneInput(BaseUserInputState):
-    prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
-    request_message = PROMPT_REQUEST_CUSTOM_BACKBONE_EXPRESSION
+class BackboneSelectionChoice(BaseUserInputState):
+    """State for choosing backbone selection method.
+    
+    Presents 4 methods for providing plasmid backbone:
+    1. Choose from library (pcDNA3.1(+) or pAG)
+    2. Provide name AND sequence
+    3. Provide just the name
+    4. Describe what you need
+    """
+    prompt_process = PROMPT_PROCESS_BACKBONE_SELECTION
+    request_message = PROMPT_REQUEST_BACKBONE_SELECTION
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process user's choice for backbone selection method.
+        
+        Routes to appropriate state based on selection.
+        
+        Args:
+            user_message: User's choice (1, 2, 3, or 4)
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to BackboneLibrarySelection if choice 1
+                - Routes to CustomBackboneNameAndSequence if choice 2
+                - Routes to CustomBackboneNameOnly if choice 3
+                - Routes to CustomBackboneDescription if choice 4
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+        
+        choice = response.get("Choice", "").strip()
+        
+        if choice == "1":
+            next_state = BackboneLibrarySelection
+        elif choice == "2":
+            next_state = CustomBackboneNameAndSequence
+        elif choice == "3":
+            next_state = CustomBackboneNameOnly
+        elif choice == "4":
+            next_state = CustomBackboneDescription
+        else:
+            # Default to library if unclear
+            next_state = BackboneLibrarySelection
+        
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response="",
+            ),
+            next_state,
+        )
+
+
+class BackboneLibrarySelection(BaseUserInputState):
+    """State for selecting from standard library (pcDNA3.1(+) or pAG).
+    
+    Displays detailed information about each backbone option.
+    """
+    prompt_process = PROMPT_PROCESS_LIBRARY_SELECTION
+    request_message = PROMPT_REQUEST_LIBRARY_SELECTION
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process user's selection from library.
+        
+        Args:
+            user_message: User's choice (1 for pcDNA3.1+ or 2 for pAG)
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneInsertChoice with selected backbone stored
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+        
+        selection = response.get("Selection", "").lower()
+        
+        # Store the selected backbone in the response result
+        backbone_name = "pcDNA3.1(+)" if "pcdna" in selection else "pAG" if "pag" in selection else "Unknown"
+        
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result={
+                    "BackboneName": backbone_name,
+                    "SelectionMethod": "library",
+                    "Reasoning": response.get("Reasoning", ""),
+                },
+                response="",
+            ),
+            GeneInsertChoice,
+        )
+
+
+class CustomBackboneNameAndSequence(BaseUserInputState):
+    """State for collecting custom plasmid backbone name AND sequence.
+    
+    User provides both plasmid name and the complete sequence.
+    """
+    prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
+    request_message = PROMPT_REQUEST_BACKBONE_NAMESEQ
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process custom backbone name and sequence input.
+        
+        Args:
+            user_message: User input with plasmid name and sequence
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneInsertChoice on success
+                - Routes back on error if sequence not found
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
-        # Check if a sequence was actually provided
-        sequence_provided = response.get("SequenceProvided", "no").lower() == "yes"
-        sequence_length = response.get("SequenceLength")
-        sequence_extracted = response.get("SequenceExtracted", "NA")
+        sequence_provided = response.get("SequenceProvided", False)
+        sequence_extracted = response.get("SequenceExtracted", "")
+        backbone_name = response.get("BackboneName", "").strip()
         
-        if not sequence_provided or not sequence_length:
-            # Graceful failure: user only provided name, not sequence
-            error_message = """We weren't able to extract a plasmid sequence from your input. 
+        if not sequence_provided or not sequence_extracted or len(sequence_extracted) < 200 or not backbone_name:
+            error_message = """**⚠️ Missing Information**
 
-                To use a custom backbone, please provide:
-                1. The plasmid name/identifier
-                2. The actual DNA sequence (in FASTA or raw ACGT format)
+Please provide:
+✓ Plasmid name (e.g., "pEGFP-N1")
+✓ Complete plasmid sequence (at least 200 bp, FASTA or raw format)
 
-                You can also try:
-                - Providing the sequence from a GenBank file
-                - Pasting the sequence from a plasmid repository
-                - Going back to select a standard backbone (pcDNA3.1(+) or pAG)
-
-                Please try again with the sequence included."""
+**Please try again with both pieces of information:**"""
             
             return (
                 Result_ProcessUserInput(
                     status="error",
                     response=error_message,
                 ),
-                CustomBackboneInput,  # Allow user to try again
+                CustomBackboneNameAndSequence,
             )
         
-        text_response = f"Custom Backbone: {response.get('BackboneName', 'Unknown')}\n"
-
-        breakpoint()
-
-        
-        # Build summary of provided information
-        details = []
-        details.append(f"Sequence length: {sequence_length}")
-        if response.get("Promoter"):
-            details.append(f"Promoter: {response.get('Promoter')}")
-        if response.get("SelectionMarker"):
-            details.append(f"Selection marker: {response.get('SelectionMarker')}")
-        if response.get("Origin"):
-            details.append(f"Origin: {response.get('Origin')}")
-        
-        if details:
-            text_response += " | ".join(details)
-        
-        # Store the backbone data in result so it gets saved to memory with state name "CustomBackboneInput"
-        # This ensures the sequence and other details are available downstream
+        # Success - sequence extracted
         return (
             Result_ProcessUserInput(
                 status="success",
-                result=response,  # This will be saved to memory["CustomBackboneInput"]
-                response=text_response,
+                result=response,
+                response="",
             ),
-            GeneInsertSelection,
+            GeneInsertChoice,
         )
 
 
-class GeneInsertSelection(BaseUserInputState):
-    prompt_process = PROMPT_PROCESS_AGENT1
-    request_message = PROMPT_REQUEST_AGENT1
+class CustomBackboneNameOnly(BaseUserInputState):
+    """State for collecting custom plasmid backbone name only.
+    
+    User provides just the plasmid name - we'll attempt to look up the sequence.
+    """
+    prompt_process = """Please act as an expert in plasmid design. Given the user input with a plasmid name, extract the name and prepare for sequence lookup.
+
+User Input: {user_message}
+
+Return JSON:
+{{
+  "BackboneName": "extracted plasmid name",
+  "Reasoning": "explanation of what was extracted"
+}}"""
+    
+    request_message = PROMPT_REQUEST_BACKBONE_NAMEONLY
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process custom backbone name input and attempt lookup.
+        
+        Args:
+            user_message: User's plasmid name
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneInsertChoice on success
+                - Routes back on error if name not recognized
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        backbone_name = response.get("BackboneName", "").strip()
+        
+        if not backbone_name:
+            error_message = """**⚠️ Plasmid Name Required**
+
+We could not extract a plasmid name from your input.
+
+**Please provide:**
+- The plasmid name (e.g., "pEGFP-N1", "pUC19", "pcDNA3.1")
+
+**Please try again:**"""
+            
+            return (
+                Result_ProcessUserInput(
+                    status="error", 
+                    response=error_message,
+                ),
+                CustomBackboneNameOnly,
+            )
+        
+        # Try Biomni lookup
+        biomni_agent = get_biomni_agent()
+        if biomni_agent is not None:
+            logger.info(f"Attempting Biomni lookup for plasmid: {backbone_name}")
+            
+            found_backbone_sequence = False
+            for attempt in range(3):
+                try:
+                    biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
+                    
+                    # Parse successful result
+                    if isinstance(biomni_result, dict):
+                        biomni_response = biomni_result.get("response_data", [])
+                        if biomni_response:
+                            match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_response[-1], re.DOTALL)
+                            if match:
+                                json_str = match.group(1)
+                                data = json.loads(json_str)
+                                sequence_extracted = data.get("full_dna_sequence", "")
+                                
+                                if sequence_extracted and len(sequence_extracted) > 200:
+                                    found_backbone_sequence = True
+                                    response["SequenceExtracted"] = sequence_extracted
+                                    response["SequenceLength"] = len(sequence_extracted)
+                                    break
+                    
+                    if not found_backbone_sequence and attempt < 2:
+                        time.sleep(1)
+                        
+                except Exception as e:
+                    logger.warning(f"Biomni lookup attempt {attempt + 1} failed: {e}")
+                    if attempt < 2:
+                        time.sleep(1)
+                
+            if not found_backbone_sequence:
+                error_message = f"""**⚠️ Plasmid Not Found**
+
+Could not find sequence information for plasmid: **{backbone_name}**
+
+**Options:**
+1. Go back and select from our library (pcDNA3.1(+) or pAG)
+2. Provide both the name AND sequence (option 2)
+3. Describe what type of backbone you need (option 4)
+
+Would you like to try a different plasmid name, or select another option?"""
+                
+                return (
+                    Result_ProcessUserInput(
+                        status="error",
+                        response=error_message, 
+                    ),
+                    CustomBackboneNameOnly,
+                )
+        
+        # Success - sequence found
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response="",
+            ),
+            GeneInsertChoice,
+        )
+
+
+class CustomBackboneDescription(BaseUserInputState):
+    """State for collecting custom backbone by description.
+    
+    User describes what type of backbone they need (promoter, marker, origin, etc.)
+    and we either suggest a library option or prepare for custom search.
+    """
+    prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
+    request_message = PROMPT_REQUEST_BACKBONE_DESCRIPTION
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process user's backbone description and suggest best option.
+        
+        Args:
+            user_message: User's description of ideal backbone
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to BackboneLibrarySelection if pcDNA3.1(+) or other library sequence match
+                - Routes to CustomBackboneNameOnly if custom search needed
+                - Routes back if description unclear
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        backbone_name = response.get('BackboneName', "").strip()
+
+        #If the suggested plasmid matches a library name then go ahead and pull the sequence.
+        
+        # Load the Library
+        plasmid_reader = PlasmidLibraryReader()
+        plasmid_reader.load_library()
+        sequence_extracted = ""
+        backbone_details = plasmid_reader.get_plasmid_sequence_details(backbone_name)
+        if not backbone_details.empty:
+            sequence_extracted = backbone_details['Sequence']
+            response["SequenceExtracted"] = sequence_extracted
+            if len(sequence_extracted) > 200:
+                logger.info(f"Was able to find {backbone_name} in the plasmid library, taking the sequence from the local repo.")
+            
+            if pd.isna(response["SequenceExtracted"]) or response["SequenceExtracted"] == '':
+                logger.warning(f"Backbone {backbone_name} found but has no sequence in library")
+                response["SequenceExtracted"] = None
+            
+
+        if not sequence_extracted:
+            biomni_agent = get_biomni_agent()
+            if biomni_agent is not None:
+                logger.info(f"Attempting Biomni lookup for plasmid: {backbone_name}")
+                
+                found_backbone_sequence = False
+                for attempt in range(3):
+                    biomni_result = biomni_agent.lookup_plasmid_by_name(backbone_info=response)
+                    biomni_response = biomni_result["response_data"]
+
+                    if isinstance(biomni_result, dict) and ("error" in biomni_result.keys()):
+                        logger.warning(f"Biomni lookup attempt {attempt + 1} failed: {biomni_result.get('error')}")
+                        if attempt < 2:
+                            time.sleep(1)
+                            continue
+                    else:
+                        # Parse successful result
+                        if isinstance(biomni_result, dict):
+                            match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_response[-1], re.DOTALL)
+                            if match:
+                                json_str = match.group(1)
+                                data = json.loads(json_str)
+                                sequence_extracted = data.get("full_dna_sequence", "")
+                                
+                        if sequence_extracted and len(sequence_extracted) > 200:
+                            found_backbone_sequence = True
+                            response["SequenceExtracted"] = sequence_extracted
+                            response["SequenceLength"] = len(sequence_extracted)
+                            break
+                                
+                    
+                if not found_backbone_sequence:
+                    breakpoint()
+                    error_message = f"""**⚠️ Plasmid Not Found**
+
+    Could not find sequence information for plasmid: **{backbone_name}**
+
+    **Please try:**
+    1. Check the plasmid name spelling
+    2. Provide alternative names or identifiers  
+    3. Go back and provide the sequence directly (option 1)
+
+    Please try again with a different plasmid name or identifier:"""
+                    
+                    return (
+                        Result_ProcessUserInput(
+                            status="error",
+                            response=error_message, 
+                        ),
+                        CustomBackboneDescription,
+                    )
+
+        # Success - route based on whether Biomni suggested the plasmid
+        if response.get("PlasmidSuggested"):
+            next_state = ConfirmPlasmidBackboneChoice
+        else:
+            next_state = GeneInsertChoice
+    
+        backbone_prompt = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE.format(
+            BackboneName=response.get("BackboneName", "Backbone Not Found"),
+            Promoter=response.get("Promoter", "Promoter Not Specified"),
+            SelectionMarker=response.get("SelectionMarker", "Selection Marker Not Specified"),
+            Origin=response.get("Origin", "Origin Not Specified"),
+        )
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response=backbone_prompt,
+            ),
+            next_state,
+        )
+
+class ConfirmPlasmidBackboneChoice(BaseUserInputState):
+    """State for confirming plasmid backbone choice suggested by Biomni.
+    
+    Displays the suggested plasmid backbone name and asks user to confirm
+    or provide a different plasmid name/sequence.
+    """
+
+    prompt_process = PROMPT_PROCESS_CONFIRM_BACKBONE_CHOICE
+    #request_message = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process user confirmation of suggested plasmid backbone.
+        
+        If user confirms the suggested backbone, proceed to gene insert selection.
+        If user wants to provide a different backbone, route back to CustomBackboneInput.
+        
+        Args:
+            user_message: User's confirmation/modification response
+            **kwargs: Additional context from workflow including memory
+        
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to BackboneSelectionChoice if user wants to change backbone
+                - Routes to GeneInsertChoice if user confirms backbone
+        """
+        memory = kwargs.get("memory", {})
+        
+        # Extract backbone data from memory (could be from any of the 4 backbone selection paths)
+        custom_backbone_result = (memory.get("BackboneLibrarySelection") or 
+                                   memory.get("CustomBackboneNameAndSequence") or 
+                                   memory.get("CustomBackboneNameOnly") or 
+                                   memory.get("CustomBackboneDescription"))
+        backbone_result = memory.get("BackboneSelectionChoice") 
+        
+        # Default values in case data is missing
+        backbone_name = "Unknown"
+        promoter = "Not specified"
+        selection_marker = "Not specified" 
+        origin = "Not specified"
+        
+        # Extract backbone details from memory
+        if custom_backbone_result and custom_backbone_result.result:
+            backbone_data = custom_backbone_result.result
+            backbone_name = backbone_data.get("BackboneName", "Custom Backbone")
+            promoter = backbone_data.get("Promoter", "Not specified")
+            selection_marker = backbone_data.get("SelectionMarker", "Not specified")
+            origin = backbone_data.get("Origin", "Not specified")
+        elif backbone_result and backbone_result.result:
+            backbone_data = backbone_result.result
+            backbone_name = backbone_data.get("BackboneName", "Selected Backbone")
+            # For standard backbones, we might not have detailed features
+            promoter = backbone_data.get("Promoter", "Standard promoter")
+            selection_marker = backbone_data.get("SelectionMarker", "Standard marker")
+            origin = backbone_data.get("Origin", "Standard origin")
+
+        # Use formatted_request as the message to the user (e.g., in UI or as part of LLM response)
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+
+        status = response.get("Status", "").lower()
+        if "modify" in status or "change" in status:
+            next_state = BackboneSelectionChoice
+        else:
+            next_state = GeneInsertChoice
+
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response="",  # Show the filled-out confirmation message to the user
+            ),
+            next_state,
+        )
+
+
+class GeneInsertChoice(BaseUserInputState):
+    """State for choosing how to provide gene insert information.
+    
+    Presents numbered options for providing gene insert:
+    1. I have the exact DNA sequence  
+    2. I have the gene name for lookup
+    """
+    prompt_process = """Please act as an expert in molecular biology. Given the user input, determine which option they selected for providing gene insert information.
+
+User message: {user_message}
+
+The user is choosing between:
+1. Providing the exact DNA sequence directly
+2. Providing gene name for sequence lookup
+
+Return JSON with:
+{{
+  "Choice": "1" or "2", 
+  "Reasoning": "explanation of which option the user selected",
+  "Status": "success"
+}}"""
+    
+    request_message = """
+    
+Now let's specify your gene insert.
+
+How would you like to provide the gene information?
+
+1. **I have the exact DNA sequence** - Paste the coding sequence directly
+2. **I have the gene name** - Provide gene name for automatic sequence lookup
+
+Please select **1** or **2**."""
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process user's choice for gene insert input method.
+        
+        Routes to appropriate gene input method based on selection.
+        
+        Args:
+            user_message: User's choice (1 or 2)
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneSequenceInput if choice 1
+                - Routes to GeneNameInput if choice 2
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+        
+        choice = response.get("Choice", "").strip()
+        reasoning = response.get("Reasoning", "")
+        
+        if choice == "1":
+            next_state = GeneSequenceInput
+        elif choice == "2":
+            next_state = GeneNameInput
+        else:
+            # Default to name input if unclear
+            next_state = GeneNameInput
+        
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response="",
+            ),
+            next_state,
+        )
+
+
+class GeneSequenceInput(BaseUserInputState):
+    """State for collecting exact gene sequence from user."""
+    prompt_process = PROMPT_PROCESS_AGENT1
+    request_message = """Please provide your exact gene sequence.
+
+**Accepted formats:**
+- FASTA format: >gene_name followed by sequence  
+- Raw sequence: Just the DNA sequence (ATGC...)
+
+**Example:**
+```
+>EGFP
+ATGGTGAGCAAGGGCGAG...
+```
+
+Please paste your gene sequence below:"""
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process gene sequence input."""
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
         response["original_request"] = user_message
         
         has_sequence = response.get("Has exact sequence", "no").lower() == "yes"
         
-        if has_sequence:
-            # User provided exact sequence, proceed directly
-            text_response = f"Gene: {response.get('Target gene', 'Unknown')}\nSequence provided: {response.get('Sequence provided', 'N/A')}"
-        else:
-            # User provided gene name, agents will look it up
-            text_response = f"Gene: {response.get('Target gene', 'Unknown')}\nWe will look up the sequence for you."
-            if response.get("Suggested variants"):
-                text_response += f"\nSuggested variants: {response.get('Suggested variants')}"
+        if not has_sequence:
+            error_message = """**⚠️ No Sequence Detected**
+
+We couldn't find a valid DNA sequence in your input.
+
+**Please ensure:**
+- Use DNA bases only (A, T, G, C)
+- Provide sequence in FASTA format or as raw sequence
+- Sequence should be the coding sequence (CDS) for your gene
+
+Please try again with your gene sequence:"""
+            
+            return (
+                Result_ProcessUserInput(
+                    status="error",
+                    response=error_message,
+                ),
+                GeneSequenceInput,
+            )
+        
+        text_response = ""
         
         return (
             Result_ProcessUserInput(
@@ -151,19 +693,380 @@ class GeneInsertSelection(BaseUserInputState):
         )
 
 
-class ConstructConfirmation(BaseUserInputState):
-    prompt_process = PROMPT_PROCESS_SEQUENCE_VALIDATION
-    request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
+class GeneNameInput(BaseUserInputState):
+    """State for collecting gene name for sequence lookup."""
+    prompt_process = PROMPT_PROCESS_AGENT1
+    request_message = """
+    
+**📝 Please provide the gene name for sequence lookup: 📝**
+
+**Examples:**
+- "EGFP" or "Enhanced Green Fluorescent Protein"
+- "human TP53" or "mouse Actb" 
+- "mCherry" or "Luciferase"
+
+**Tips:**
+- Include species if known (e.g., "human", "mouse")
+- Use standard gene symbols when possible
+- We'll suggest variants if your gene has multiple forms
+
+📝 Please enter your gene name: 📝
+
+
+**⏳ Please note this step may take a bit longer as we look up the sequence for you. ⏳**"""
 
     @classmethod
     def step(cls, user_message, **kwargs):
-        memory = kwargs.get("memory", {})
+        """Process gene name input and attempt sequence lookup."""
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+        response["original_request"] = user_message
         
+        has_sequence = response.get("Has exact sequence", "no").lower() == "yes"
+        
+        if has_sequence:
+            # User actually provided a sequence, redirect to sequence processing
+            text_response = ""
+            
+            return (
+                Result_ProcessUserInput(
+                    status="success",
+                    result=response,
+                    response=text_response,
+                ),
+                ConstructConfirmation,
+            )
+        
+        text_response = ""
+
+        # Use Biomni to look up the gene sequence (existing logic)
+        biomni_agent = get_biomni_agent()
+        if biomni_agent is not None:
+            target_gene = response.get('Target gene')
+            sequence_found = False
+            gene_sequence = None
+            
+            # Try to look up target gene (allow 2 attempts)
+            for attempt in range(2):
+                logger.info(f"Biomni lookup attempt {attempt + 1}/2 for target gene: {target_gene}")
+                biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
+                # Parse biomni output to extract sequence and gene info
+                if isinstance(biomni_result, dict):
+                    breakpoint()
+                    gene_sequence = biomni_result.get("sequence")
+                    found_gene_name = biomni_result.get("gene_name")
+                    if gene_sequence:
+                        sequence_found = True
+                        response["GeneSequence"] = gene_sequence
+                        response["FoundGeneName"] = found_gene_name
+                        logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
+                        break
+                else:
+                    # Parse JSON from text response
+                    match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1] if isinstance(biomni_result, list) else biomni_result, re.DOTALL)
+                    if match:
+                        json_str = match.group(1)
+                        data = json.loads(json_str)
+                        gene_sequence = data.get("sequence")
+                        found_gene_name = data.get("gene_name")
+                        if gene_sequence:
+                            sequence_found = True
+                            response["GeneSequence"] = gene_sequence
+                            response["FoundGeneName"] = found_gene_name
+                            logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
+                            break
+                
+                if not sequence_found and attempt < 1:
+                    time.sleep(1)  # Wait before retrying
+            
+            if not sequence_found:
+                logger.warning("Biomni could not find gene sequence for target gene or any suggested variants")
+                error_response = f"**❌ Gene Lookup Failed**\n\n"
+                error_response += f"Could not find sequence information for **{response.get('Target gene', 'Unknown')}**"
+                if response.get("Suggested variants"):
+                    variants_str = response.get('Suggested variants')
+                    if isinstance(variants_str, list):
+                        variants_str = ", ".join(variants_str)
+                    error_response += f" or suggested variants (**{variants_str}**)"
+                error_response += ".\n\n**Please try again with:**\n"
+                error_response += "- A more specific gene name\n"
+                error_response += "- The exact DNA sequence (go back to option 1)\n"
+                error_response += "- Alternative gene names or identifiers"
+                
+                return (
+                    Result_ProcessUserInput(
+                        status="error",
+                        result=response,
+                        response=error_response,
+                    ),
+                    GeneNameInput,
+                )
+        else:
+            logger.warning("Biomni agent not available for gene sequence lookup")
+            return (
+                Result_ProcessUserInput(
+                    status="error",
+                    result=response,
+                    response="**❌ Gene Lookup Service Unavailable**\n\nThe gene sequence lookup service is currently unavailable.\n\n**Please go back and provide the exact DNA sequence** (option 1) for your gene insert.",
+                ),
+                GeneInsertChoice,
+            )
+
+        # Success - sequence found
+        breakpoint()
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response=text_response,
+            ),
+            ConstructConfirmation,
+        )
+
+
+class GeneInsertSelection(BaseUserInputState):
+    """State for collecting gene insert information.
+    
+    Asks user to provide either:
+    1. Exact DNA sequence of the gene insert
+    2. Gene name/identifier for sequence lookup
+    
+    Uses LLM to parse response and determine which path to take.
+    """
+    prompt_process = PROMPT_PROCESS_AGENT1
+    request_message = PROMPT_REQUEST_AGENT1
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Process gene insert input (sequence or gene identifier).
+        
+        Parses user input to determine if they provided an exact sequence
+        or a gene name for lookup. Stores original input for later sequence extraction.
+        
+        Args:
+            user_message: User's gene insert input (sequence or gene name)
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to ConstructConfirmation to show design summary
+        """
+        prompt = cls.prompt_process.format(user_message=user_message)
+        response = OpenAIChat.chat(prompt, use_GPT4=True)
+        response["original_request"] = user_message
+        
+        has_sequence = response.get("Has exact sequence", "no").lower() == "yes"
+        
+        if has_sequence:
+            # User provided exact sequence, proceed directly
+            text_response = ""
+        else:
+            # User provided gene name, agents will look it up
+            text_response = ""
+
+            # Use Biomni to look up the gene sequence
+            biomni_agent = get_biomni_agent()
+            if biomni_agent is not None:
+                target_gene = response.get('Target gene')
+                sequence_found = False
+                gene_sequence = None
+                
+                # Try to look up target gene (allow 2 attempts)
+                for attempt in range(2):
+                    try:
+                        logger.info(f"Biomni lookup attempt {attempt + 1}/2 for target gene: {target_gene}")
+                        biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
+                        
+                        # Parse biomni output to extract sequence and gene info
+                        if isinstance(biomni_result, dict):
+                            gene_sequence = biomni_result.get("sequence")
+                            found_gene_name = biomni_result.get("gene_name")
+                            if gene_sequence:
+                                sequence_found = True
+                                response["GeneSequence"] = gene_sequence
+                                response["FoundGeneName"] = found_gene_name
+                                logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
+                                break
+                        else:
+                            # Parse JSON from text response
+                            match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1] if isinstance(biomni_result, list) else biomni_result, re.DOTALL)
+                            if match:
+                                json_str = match.group(1)
+                                data = json.loads(json_str)
+                                gene_sequence = data.get("sequence")
+                                found_gene_name = data.get("gene_name")
+                                if gene_sequence:
+                                    sequence_found = True
+                                    response["GeneSequence"] = gene_sequence
+                                    response["FoundGeneName"] = found_gene_name
+                                    logger.info(f"Biomni successfully found sequence for target gene: {target_gene}")
+                                    break
+                        
+                        if not sequence_found and attempt < 1:
+                            time.sleep(1)  # Wait before retrying
+                            
+                    except Exception as e:
+                        logger.warning(f"Biomni lookup attempt {attempt + 1}/2 failed for target gene: {e}")
+                        if attempt < 1:
+                            time.sleep(1)  # Wait before retrying
+                
+                # If target gene lookup failed, try suggested variants (allow 2 attempts)
+                if not sequence_found and response.get("Suggested variants"):
+                    suggested_variants = response.get("Suggested variants")
+                    if isinstance(suggested_variants, str):
+                        suggested_variants = [suggested_variants]
+                    
+                    for variant in suggested_variants:
+                        for attempt in range(2):
+                            try:
+                                logger.info(f"Biomni lookup attempt {attempt + 1}/2 for suggested variant: {variant}")
+                                biomni_result = biomni_agent.lookup_gene_sequence(gene_name=variant)
+                                
+                                # Parse biomni output to extract sequence and gene info
+                                if isinstance(biomni_result, dict):
+                                    gene_sequence = biomni_result.get("sequence")
+                                    found_gene_name = biomni_result.get("gene_name")
+                                    if gene_sequence:
+                                        sequence_found = True
+                                        response["GeneSequence"] = gene_sequence
+                                        response["FoundGeneName"] = found_gene_name
+                                        response["Target gene"] = variant  # Update target gene to the found variant
+                                        logger.info(f"Biomni successfully found sequence for suggested variant: {variant}")
+                                        break
+                                else:
+                                    # Parse JSON from text response
+                                    match = re.search(r"<solution>\s*(\{.*?\})\s*</solution>", biomni_result[-1] if isinstance(biomni_result, list) else biomni_result, re.DOTALL)
+                                    if match:
+                                        json_str = match.group(1)
+                                        data = json.loads(json_str)
+                                        gene_sequence = data.get("sequence")
+                                        found_gene_name = data.get("gene_name")
+                                        if gene_sequence:
+                                            sequence_found = True
+                                            response["GeneSequence"] = gene_sequence
+                                            response["FoundGeneName"] = found_gene_name
+                                            response["Target gene"] = variant  # Update target gene to the found variant
+                                            logger.info(f"Biomni successfully found sequence for suggested variant: {variant}")
+                                            break
+                                
+                                if not sequence_found and attempt < 1:
+                                    time.sleep(1)  # Wait before retrying
+                                    
+                            except Exception as e:
+                                logger.warning(f"Biomni lookup attempt {attempt + 1}/2 failed for suggested variant {variant}: {e}")
+                                if attempt < 1:
+                                    time.sleep(1)  # Wait before retrying
+                        
+                        if sequence_found:
+                            break
+                
+                # Check for gene name mismatch after successful sequence lookup
+                if sequence_found and response.get("FoundGeneName"):
+                    found_gene_name = response.get("FoundGeneName", "").lower().strip()
+                    target_gene_name = response.get("Target gene", "").lower().strip()
+                    
+                    # Simple semantic match check - you can make this more sophisticated
+                    if found_gene_name and target_gene_name and found_gene_name != target_gene_name:
+                        # Check if they're not just minor variations (e.g., "gfp" vs "egfp")
+                        if not (found_gene_name in target_gene_name or target_gene_name in found_gene_name):
+                            logger.info(f"Gene name mismatch detected: requested '{target_gene_name}' but found '{found_gene_name}'")
+                            # Route to confirmation state
+                            text_response = f"**⚠️ Gene Name Mismatch Detected**\n\n"
+                            text_response += f"**You requested:** {response.get('Target gene', 'Unknown')}\n"
+                            text_response += f"**Found sequence for:** {response.get('FoundGeneName', 'Unknown')}\n\n"
+                            text_response += f"The sequence we found appears to be for a different gene than what you requested. Would you like to proceed with this sequence, or would you prefer to try a different gene name?"
+                            
+                            return (
+                                Result_ProcessUserInput(
+                                    status="success",
+                                    result=response,
+                                    response=text_response,
+                                ),
+                                ConfirmGeneIdentityMismatch,
+                            )
+                
+                if not sequence_found:
+                    logger.warning("Biomni could not find gene sequence for target gene or any suggested variants")
+                    error_response = f"**❌ Gene Lookup Failed**\n\n"
+                    error_response += f"Could not find sequence information for **{response.get('Target gene', 'Unknown')}**"
+                    if response.get("Suggested variants"):
+                        variants_str = response.get('Suggested variants')
+                        if isinstance(variants_str, list):
+                            variants_str = ", ".join(variants_str)
+                        error_response += f" or suggested variants (**{variants_str}**)"
+                    error_response += ".\n\n**Please try again with:**\n"
+                    error_response += "- A more specific gene name\n"
+                    error_response += "- The exact DNA sequence\n"
+                    error_response += "- Alternative gene names or identifiers"
+                    
+                    return (
+                        Result_ProcessUserInput(
+                            status="error",
+                            result=response,
+                            response=error_response,
+                        ),
+                        GeneInsertChoice,
+                    )
+            else:
+                logger.warning("Biomni agent not available for gene sequence lookup")
+                return (
+                    Result_ProcessUserInput(
+                        status="error",
+                        result=response,
+                        response="**❌ Gene Lookup Service Unavailable**\n\nThe gene sequence lookup service is currently unavailable.\n\n**Please provide the exact DNA sequence** for your gene insert.",
+                    ),
+                    GeneInsertChoice,
+                )
+
+            
+        text_response = PROMPT_REQUEST_SEQUENCE_VALIDATION.format(gene_name=response.get('FoundGeneName', 'Unknown'))
+        return (
+            Result_ProcessUserInput(
+                status="success",
+                result=response,
+                response=text_response,
+            ),
+            ConstructConfirmation,
+        )
+
+
+class ConstructConfirmation(BaseUserInputState):
+    """State for displaying construct summary and requesting confirmation.
+    
+    Shows user a summary of the planned construct with:
+    - Gene insert name
+    - Plasmid backbone name
+    
+    Allows user to either proceed to output format selection or modify the gene.
+    """
+    prompt_process = PROMPT_PROCESS_SEQUENCE_VALIDATION
+    #request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
+    request_message = ""
+
+    @classmethod
+    def step(cls, user_message, **kwargs):
+        """Display construct summary and get user confirmation.
+        
+        Retrieves gene and backbone data from memory, formats a detailed summary
+        message with actual values, and asks user to confirm or modify.
+        
+        Args:
+            user_message: User's confirmation/modification response
+            **kwargs: Additional context including memory with previous results
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to GeneInsertChoice if user wants to modify
+                - Routes to OutputFormatSelection if user confirms construct
+        """
+        memory = kwargs.get("memory", {})
+
         # Extract data from previous states
-        gene_result = memory.get("GeneInsertSelection")
+        gene_result = memory.get("GeneNameInput") or memory.get("GeneSequenceInput")
         backbone_result = memory.get("StateStep1Backbone")
         custom_backbone_result = memory.get("CustomBackboneInput")
         
+        breakpoint()
         gene_data = gene_result.result if gene_result else {}
         
         if custom_backbone_result.result:
@@ -190,7 +1093,7 @@ class ConstructConfirmation(BaseUserInputState):
 
         status = response.get("Status", "").lower()
         if "request_modifications" in status or "modify" in status:
-            next_state = GeneInsertSelection
+            next_state = GeneInsertChoice
         else:
             # Default to proceeding with output format selection
             next_state = OutputFormatSelection
@@ -218,9 +1121,9 @@ class SequenceValidation(BaseUserInputState):
         memory = kwargs.get("memory", {})
         
         # Extract data from previous states
-        gene_result = memory.get("GeneInsertSelection")
+        gene_result = memory.get("GeneNameInput") or memory.get("GeneSequenceInput")
         backbone_result = memory.get("StateStep1Backbone")
-        custom_backbone_result = memory.get("CustomBackboneInput")
+        custom_backbone_result = memory.get("CustomBackboneInput") or memory.get("CustomBackboneDetailsInput")
         
         gene_data = gene_result.result if gene_result else {}
         if custom_backbone_result.result:
@@ -248,7 +1151,7 @@ class SequenceValidation(BaseUserInputState):
 
         status = response.get("Status", "").lower()
         if "request_modifications" in status or "modify" in status:
-            next_state = GeneInsertSelection
+            next_state = GeneInsertChoice
         else:
             # Default to proceeding with output format selection
             next_state = OutputFormatSelection
@@ -268,23 +1171,53 @@ class SequenceValidation(BaseUserInputState):
 
 
 class OutputFormatSelection(BaseUserInputState):
+    """State for selecting output format and generating final construct sequence.
+    
+    Main processing state that:
+    1. Gets user's preferred output format (GenBank, FASTA, Raw)
+    2. Retrieves gene and backbone sequences
+    3. Identifies gene if not named
+    4. Looks up backbone in library or uses custom backbone sequence
+    5. Intelligently inserts gene into backbone using MCS handler (with optional Biomni)
+    6. Formats output in requested format
+    7. Displays final construct sequence
+    """
     prompt_process = PROMPT_PROCESS_OUTPUT_FORMAT
     request_message = PROMPT_REQUEST_OUTPUT_FORMAT
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process output format selection and generate final construct.
+        
+        Complex multi-step function that orchestrates the final sequence generation:
+        - Parses output format selection (GenBank/FASTA/Raw)
+        - Extracts gene sequence from original user input
+        - Identifies unnamed genes using LLM
+        - Retrieves backbone (standard library or custom)
+        - Uses Biomni (if available) or MCSHandler to intelligently insert gene
+        - Formats output according to user preference
+        
+        Args:
+            user_message: User's output format selection
+            **kwargs: Additional context including memory with all previous results
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to FinalSummary with complete construct sequence
+                - Returns errors to GeneInsertChoice if issues occur
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
         
         memory = kwargs.get("memory", {})
         
         # Retrieve stored design information from previous states
-        gene_result = memory.get("GeneInsertSelection")
+        gene_result = memory.get("GeneNameInput") or memory.get("GeneSequenceInput")
         backbone_result = memory.get("StateStep1Backbone")
-        custom_backbone_result = memory.get("CustomBackboneInput")
+        custom_backbone_result = memory.get("CustomBackboneInput") or memory.get("CustomBackboneDetailsInput")
 
         # DO NOT PROVIDE DEFAULTS, Go back to the user if missing.
-        
+        breakpoint()
         # Extract result data from Result_ProcessUserInput objects
         gene_data = gene_result.result if gene_result else {}
         if custom_backbone_result.result:
@@ -316,15 +1249,13 @@ class OutputFormatSelection(BaseUserInputState):
         gene_seq = dna = max(dna_sequences, key=len) if dna_sequences else None  # In case any other pieces of text are present, just take the longest continuous sequence of ACGT letters.
         
         if not gene_seq:
-            return (
+                return (
                 Result_ProcessUserInput(
                     status="error",
-                    response="Error: No valid DNA sequence found in your input. Please provide a DNA sequence.",
+                    response="**❌ Error: No valid DNA sequence found**\n\nPlease provide a DNA sequence in FASTA format or raw ACGT format.",
                 ),
-                GeneInsertSelection,
-            )
-
-        
+                GeneInsertChoice,
+            )        
         # Try to identify gene if name is generic/missing
         if gene_name == "Gene Insert" and gene_seq and len(gene_seq) > 50:
             logger.info("Gene name not provided, attempting identification...")
@@ -337,7 +1268,6 @@ class OutputFormatSelection(BaseUserInputState):
         # Fetch backbone sequence from plasmid library
         plasmid_reader = PlasmidLibraryReader()
         plasmid_reader.load_library()
-        breakpoint()
         # Try to find the plasmid in the library by name, or use custom sequence
         backbone_seq = None
         if custom_backbone_seq:
@@ -357,7 +1287,7 @@ class OutputFormatSelection(BaseUserInputState):
             return (
                 Result_ProcessUserInput(
                     status="error",
-                    response=f"Error: Could not find sequence for backbone '{backbone_name}' in plasmid library.",
+                    response=f"**❌ Error: Backbone Not Found**\n\nCould not find sequence for backbone **{backbone_name}** in plasmid library.\n\nPlease check the backbone name or select a different option.",
                 ),
                 StateStep1Backbone,
             )
@@ -436,11 +1366,32 @@ class OutputFormatSelection(BaseUserInputState):
 
 
 class FinalSummary(BaseUserInputState):
+    """Final state offering next actions after construct generation.
+    
+    Presents user with options to:
+    1. Download/save the generated construct
+    2. Modify the design (go back to gene insert selection)
+    3. Start a completely new plasmid design project
+    """
     prompt_process = PROMPT_PROCESS_FINAL_SUMMARY
     request_message = PROMPT_REQUEST_FINAL_SUMMARY
 
     @classmethod
     def step(cls, user_message, **kwargs):
+        """Process user's next action choice and route accordingly.
+        
+        Parses user decision and routes to appropriate next state or terminates workflow.
+        
+        Args:
+            user_message: User's choice for next action
+            **kwargs: Additional context from workflow
+            
+        Returns:
+            Tuple of (Result_ProcessUserInput, next_state)
+                - Routes to StateEntry if user starts new project
+                - Routes to GeneInsertChoice if user wants to modify design
+                - Routes to None (ends workflow) if user proceeds with download
+        """
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
 
@@ -464,7 +1415,7 @@ class FinalSummary(BaseUserInputState):
                     result=response,
                     response="Let's modify the design...",
                 ),
-                GeneInsertSelection,
+                GeneInsertChoice,
             )
         else:
             return (
@@ -477,7 +1428,3 @@ class FinalSummary(BaseUserInputState):
                 None,
             )
 
-
-class StateStep2(BaseUserInputState):
-    """Placeholder for backbone selection state"""
-    pass
