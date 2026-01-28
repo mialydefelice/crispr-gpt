@@ -141,10 +141,7 @@ While we can suggest some great resources and online tools to help you design an
 """
 
 PROMPT_REQUEST_SEQUENCE_VALIDATION = """
-✅ Great! We have your target gene. Here's a summary of your construct:
-
-1️⃣ Target Gene: {gene_name}
-2️⃣ Plasmid Backbone: {backbone_name}
+✅ Great! We have the target gene **{gene_name}**. 
 
 ❓ Would you like to proceed with this construct, or would you like to make any modifications?
 """

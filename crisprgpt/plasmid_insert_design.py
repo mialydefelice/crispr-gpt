@@ -463,7 +463,7 @@ class CustomBackboneDescription(BaseUserInputState):
                             status="error",
                             response=error_message, 
                         ),
-                        CustomBackboneDetailsInput,
+                        CustomBackboneDescription,
                     )
 
         # Success - route based on whether Biomni suggested the plasmid
@@ -471,28 +471,36 @@ class CustomBackboneDescription(BaseUserInputState):
             next_state = ConfirmPlasmidBackboneChoice
         else:
             next_state = GeneInsertChoice
-            
+    
+        backbone_prompt = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE.format(
+            BackboneName=response.get("BackboneName", "Backbone Not Found"),
+            Promoter=response.get("Promoter", "Promoter Not Specified"),
+            SelectionMarker=response.get("SelectionMarker", "Selection Marker Not Specified"),
+            Origin=response.get("Origin", "Origin Not Specified"),
+        )
         return (
             Result_ProcessUserInput(
                 status="success",
                 result=response,
-                response="",
+                response=backbone_prompt,
             ),
             next_state,
         )
 
 
+"""
 class StateStep1Backbone(BaseUserInputState):
-    """Legacy state - now replaced by BackboneSelectionChoice and sub-states.
+    """#Legacy state - now replaced by BackboneSelectionChoice and sub-states.
     
-    This state is kept for backward compatibility but is no longer used in the main flow.
+    #This state is kept for backward compatibility but is no longer used in the main flow.
     """
     prompt_process = PROMPT_PROCESS_STEP1_BACKBONE_INQUIRY_EXPRESSION
     request_message = PROMPT_REQUEST_STEP1_INQUIRY_EXPRESSION
 
     @classmethod
     def step(cls, user_message, **kwargs):
-        """Legacy step method."""
+        """#Legacy step method.
+        """
         # This state should not be reached in normal workflow
         return (
             Result_ProcessUserInput(
@@ -502,26 +510,26 @@ class StateStep1Backbone(BaseUserInputState):
             ),
             GeneInsertChoice,
         )
-
-
+"""
+"""
 class CustomBackboneSequenceInput(BaseUserInputState):
-    """State for collecting custom plasmid backbone sequence directly.
+    """#State for collecting custom plasmid backbone sequence directly.
     
-    Asks user to provide the complete plasmid backbone sequence in FASTA or GenBank format.
+    #Asks user to provide the complete plasmid backbone sequence in FASTA or GenBank format.
     """
     prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION
-    request_message = """Please provide your complete plasmid backbone sequence.
+    request_message = """#Please provide your complete plasmid backbone sequence.
 
-**Accepted formats:**
-- FASTA format: >plasmid_name followed by sequence
-- GenBank format: LOCUS line followed by sequence
-- Raw sequence: Just the DNA sequence (ATGC...)
+#**Accepted formats:**
+#- FASTA format: >plasmid_name followed by sequence
+#- GenBank format: LOCUS line followed by sequence
+#- Raw sequence: Just the DNA sequence (ATGC...)
 
-**Example:**
-```
->pCustomVector
-ATGCGATCGATCG...
-```
+#**Example:**
+#```
+#>pCustomVector
+#ATGCGATCGATCG...
+#```
 
 Please paste your sequence below:"""
 
@@ -536,16 +544,17 @@ Please paste your sequence below:"""
         sequence_extracted = response.get("SequenceExtracted", "")
         
         if not sequence_provided or not sequence_extracted or len(sequence_extracted) < 200:
-            error_message = """**⚠️ Sequence Issue**
+            error_message = """#**⚠️ Sequence Issue**
 
-We couldn't extract a valid plasmid sequence from your input.
+#We couldn't extract a valid plasmid sequence from your input.
 
-**Please ensure:**
-- The sequence contains only DNA bases (A, T, G, C)
-- The sequence is at least 200 base pairs long
-- Use FASTA format (>name followed by sequence) for best results
+#**Please ensure:**
+#- The sequence contains only DNA bases (A, T, G, C)
+#- The sequence is at least 200 base pairs long
+#- Use FASTA format (>name followed by sequence) for best results
 
-Please try again with your complete plasmid sequence."""
+#Please try again with your complete plasmid sequence.
+"""
             
             return (
                 Result_ProcessUserInput(
@@ -564,30 +573,31 @@ Please try again with your complete plasmid sequence."""
             ),
             GeneInsertChoice,
         )
-
-
+"""
+"""
 class CustomBackboneDetailsInput(BaseUserInputState):
-    """State for collecting custom plasmid backbone details for sequence lookup.
+    """#State for collecting custom plasmid backbone details for sequence lookup.
     
-    Asks user to provide plasmid name and details for Biomni sequence lookup.
+    #Asks user to provide plasmid name and details for Biomni sequence lookup.
     """
     prompt_process = PROMPT_PROCESS_CUSTOM_BACKBONE_EXPRESSION  
-    request_message = """Please provide your plasmid backbone details for sequence lookup.
+    request_message = """#Please provide your plasmid backbone details for sequence lookup.
 
-**Required information:**
-- **Plasmid name** (e.g., "pEGFP-N1", "pUC19", "pcDNA3.1")
+#**Required information:**
+#- **Plasmid name** (e.g., "pEGFP-N1", "pUC19", "pcDNA3.1")
 
-**Optional but helpful:**
-- Promoter type (e.g., CMV, SV40, T7)
-- Selection marker (e.g., Ampicillin, Neomycin, Kanamycin)
-- Origin of replication (e.g., pBR322, ColE1)
+#**Optional but helpful:**
+#- Promoter type (e.g., CMV, SV40, T7)
+#- Selection marker (e.g., Ampicillin, Neomycin, Kanamycin)
+#- Origin of replication (e.g., pBR322, ColE1)
 
-**Example:**
-"pEGFP-N1 with CMV promoter, Kanamycin resistance, pBR322 origin"
-or
-"Select a backbone for transient constitutive expression in HEK293 Cells"
+#**Example:**
+#"pEGFP-N1 with CMV promoter, Kanamycin resistance, pBR322 origin"
+#or
+#"Select a backbone for transient constitutive expression in HEK293 Cells"
 
-Please provide your plasmid details:"""
+#Please provide your plasmid details:
+"""
 
     @classmethod  
     def step(cls, user_message, **kwargs):
@@ -602,15 +612,16 @@ Please provide your plasmid details:"""
         sequence_extracted = response.get("SequenceExtracted", "")
         
         if not backbone_name:
-            error_message = """**⚠️ Plasmid Name Required**
+            error_message = """#**⚠️ Plasmid Name Required**
 
-We could not identify a plasmid that fit your request. Please provide additional details or a specific plasmid name.
+#We could not identify a plasmid that fit your request. Please provide additional details or a specific plasmid name.
 
-**Please provide:**
-- The plasmid name (e.g., "pEGFP-N1", "pUC19")
-- Any additional details you know
+#**Please provide:**
+#- The plasmid name (e.g., "pEGFP-N1", "pUC19")
+#- Any additional details you know
 
-Please try again with the plasmid name or a better detailed description:"""
+#Please try again with the plasmid name or a better detailed description:
+"""
             
             return (
                 Result_ProcessUserInput(
@@ -686,7 +697,7 @@ Could not find sequence information for plasmid: **{backbone_name}**
             ),
             next_state,
         )
-
+"""
 
 class ConfirmPlasmidBackboneChoice(BaseUserInputState):
     """State for confirming plasmid backbone choice suggested by Biomni.
@@ -694,8 +705,9 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
     Displays the suggested plasmid backbone name and asks user to confirm
     or provide a different plasmid name/sequence.
     """
+
     prompt_process = PROMPT_PROCESS_CONFIRM_BACKBONE_CHOICE
-    request_message = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE
+    #request_message = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE
 
     @classmethod
     def step(cls, user_message, **kwargs):
@@ -743,14 +755,6 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
             selection_marker = backbone_data.get("SelectionMarker", "Standard marker")
             origin = backbone_data.get("Origin", "Standard origin")
 
-        # Format the request message with actual backbone data
-        formatted_request = PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE.format(
-            BackboneName=backbone_name,
-            Promoter=promoter,
-            SelectionMarker=selection_marker,
-            Origin=origin
-        )
-
         # Use formatted_request as the message to the user (e.g., in UI or as part of LLM response)
         prompt = cls.prompt_process.format(user_message=user_message)
         response = OpenAIChat.chat(prompt, use_GPT4=True)
@@ -765,7 +769,7 @@ class ConfirmPlasmidBackboneChoice(BaseUserInputState):
             Result_ProcessUserInput(
                 status="success",
                 result=response,
-                response=formatted_request,  # Show the filled-out confirmation message to the user
+                response="",  # Show the filled-out confirmation message to the user
             ),
             next_state,
         )
@@ -960,6 +964,7 @@ class GeneNameInput(BaseUserInputState):
                 biomni_result = biomni_agent.lookup_gene_sequence(gene_name=target_gene)
                 # Parse biomni output to extract sequence and gene info
                 if isinstance(biomni_result, dict):
+                    breakpoint()
                     gene_sequence = biomni_result.get("sequence")
                     found_gene_name = biomni_result.get("gene_name")
                     if gene_sequence:
@@ -1020,6 +1025,7 @@ class GeneNameInput(BaseUserInputState):
             )
 
         # Success - sequence found
+        breakpoint()
         return (
             Result_ProcessUserInput(
                 status="success",
@@ -1225,7 +1231,7 @@ class GeneInsertSelection(BaseUserInputState):
                 )
 
             
-        
+        text_response = PROMPT_REQUEST_SEQUENCE_VALIDATION.format(gene_name=response.get('FoundGeneName', 'Unknown'))
         return (
             Result_ProcessUserInput(
                 status="success",
@@ -1233,113 +1239,6 @@ class GeneInsertSelection(BaseUserInputState):
                 response=text_response,
             ),
             ConstructConfirmation,
-        )
-
-
-class ConfirmGeneIdentityMismatch(BaseUserInputState):
-    """State for confirming gene identity when there's a mismatch between requested and found gene names.
-    
-    This state is triggered when the gene lookup service returns a sequence for a gene that
-    appears to have a different name than what the user requested. Asks user to confirm
-    whether they want to proceed with the found sequence or try again with a different name.
-    """
-    prompt_process = """
-You are helping a user confirm whether to proceed with a gene sequence that may not match their original request.
-
-The user requested one gene name, but the sequence lookup service found a sequence for what appears to be a different gene.
-
-User message: {user_message}
-
-Please analyze the user's response and determine their intent:
-
-Return JSON with:
-{{
-  "Action": "proceed" or "retry" or "unclear",
-  "Reasoning": "explanation of the user's intent",
-  "Status": "success"
-}}
-
-Guidelines:
-- "proceed": User wants to continue with the found sequence despite the name difference
-- "retry": User wants to try again with a different gene name or search term
-- "unclear": User's intent is not clear from their response
-"""
-    
-    request_message = """**Gene Identity Confirmation Needed**
-
-There's a mismatch between the gene you requested and what we found:
-
-**You requested:** {target_gene}
-**We found sequence for:** {found_gene}
-
-The sequence appears to be for a different gene than what you requested.
-
-**Would you like to:**
-1. **Proceed** with the found sequence (if you think it's what you want)
-2. **Try again** with a different gene name or identifier
-
-Please let me know how you'd like to proceed."""
-
-    @classmethod
-    def step(cls, user_message, **kwargs):
-        """Process user's decision about gene identity mismatch.
-        
-        If user confirms to proceed, continues to ConstructConfirmation.
-        If user wants to retry, goes back to GeneInsertChoice.
-        
-        Args:
-            user_message: User's confirmation/retry response
-            **kwargs: Additional context from workflow
-            
-        Returns:
-            Tuple of (Result_ProcessUserInput, next_state)
-                - Routes to GeneInsertChoice if user wants to retry
-                - Routes to ConstructConfirmation if user confirms to proceed
-        """
-        memory = kwargs.get("memory", {})
-        gene_result = memory.get("GeneNameInput")
-        gene_data = gene_result.result if gene_result else {}
-        
-        target_gene = gene_data.get("Target gene", "Unknown")
-        found_gene = gene_data.get("FoundGeneName", "Unknown")
-        
-        # Format the request message with actual values
-        formatted_request = cls.request_message.format(
-            target_gene=target_gene,
-            found_gene=found_gene
-        )
-        
-        # Override request_message temporarily
-        original_request_message = cls.request_message
-        cls.request_message = formatted_request
-        
-        # Process user response
-        prompt = cls.prompt_process.format(user_message=user_message)
-        response = OpenAIChat.chat(prompt, use_GPT4=True)
-        
-        action = response.get("Action", "unclear").lower()
-        
-        if action == "retry":
-            next_state = GeneInsertChoice
-            response_text = "**Retrying Gene Selection**\n\nPlease provide a different gene name or identifier."
-        elif action == "proceed":
-            next_state = ConstructConfirmation
-            response_text = f"**Proceeding with Found Gene**\n\nContinuing with sequence for **{found_gene}**."
-        else:
-            # Unclear response, ask for clarification but default to retry
-            next_state = GeneInsertChoice
-            response_text = "**Please Clarify**\n\nI'm not sure what you'd like to do. Let's try again with your gene selection."
-        
-        # Restore original request_message
-        cls.request_message = original_request_message
-        
-        return (
-            Result_ProcessUserInput(
-                status="success",
-                result=response,
-                response=response_text,
-            ),
-            next_state,
         )
 
 
@@ -1353,7 +1252,8 @@ class ConstructConfirmation(BaseUserInputState):
     Allows user to either proceed to output format selection or modify the gene.
     """
     prompt_process = PROMPT_PROCESS_SEQUENCE_VALIDATION
-    request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
+    #request_message = PROMPT_REQUEST_SEQUENCE_VALIDATION
+    request_message = ""
 
     @classmethod
     def step(cls, user_message, **kwargs):
@@ -1378,6 +1278,7 @@ class ConstructConfirmation(BaseUserInputState):
         backbone_result = memory.get("StateStep1Backbone")
         custom_backbone_result = memory.get("CustomBackboneInput")
         
+        breakpoint()
         gene_data = gene_result.result if gene_result else {}
         
         if custom_backbone_result.result:
@@ -1579,7 +1480,6 @@ class OutputFormatSelection(BaseUserInputState):
         # Fetch backbone sequence from plasmid library
         plasmid_reader = PlasmidLibraryReader()
         plasmid_reader.load_library()
-
         # Try to find the plasmid in the library by name, or use custom sequence
         backbone_seq = None
         if custom_backbone_seq:
@@ -1740,7 +1640,3 @@ class FinalSummary(BaseUserInputState):
                 None,
             )
 
-
-class StateStep2(BaseUserInputState):
-    """Placeholder for backbone selection state"""
-    pass

@@ -150,6 +150,8 @@ Please describe your ideal plasmid backbone by providing details like:
 "I need a mammalian expression vector with CMV promoter, Ampicillin resistance, pBR322 origin, around 5-6 kb"
 
 **Describe your ideal backbone:**
+
+⏳ Please note it will take some time to pull a suitable backbone sequence. ⏳
 """
 
 PROMPT_PROCESS_BACKBONE_DESCRIPTION = """You are an expert in plasmid design. The user has described the type of backbone they need. Analyze their description and suggest the best match from available options or confirm that a custom search is needed.
@@ -315,6 +317,7 @@ INSTRUCTIONS
 - If no suitable plasmid can be determined, leave "BackboneName" as an empty string.
 - If an accession number is mentioned include it. Do not attempt to looke up accession numbers. Do not invent accession numbers.
   Otherwise set "BackboneAccession" = "".
+- Try only suggesting empty plasmid backbones if possible (ie, unless specified, do not suggest backbones with inserts, or extra fusion tags.)
 
 2. Sequence handling
 - If the user provides a DNA sequence (containing only A, T, G, C characters, case-insensitive):
@@ -371,13 +374,13 @@ RESPONSE FORMAT (JSON ONLY)
 PROMPT_REQUEST_CONFIRM_BACKBONE_CHOICE = """
 Based on your request, I selected the following plasmid backbone:
 
-Backbone name: {BackboneName}
-Key features:
-- Promoter: {Promoter}
-- Selection marker: {SelectionMarker}
-- Origin of replication: {Origin}
+**Backbone name:** {BackboneName}
+**Key features:**
+- **Promoter:** {Promoter}
+- **Selection marker:** {SelectionMarker}
+- **Origin of replication:** {Origin}
 
-Does this backbone work for your intended use?
+**Does this backbone work for your intended use?**
 
 Please reply in your own words. You can confirm, reject, or request changes.
 """
